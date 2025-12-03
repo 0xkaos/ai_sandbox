@@ -8,9 +8,20 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEffect, useRef, useState } from 'react';
 
 export default function ChatPage() {
-  const { messages, input, handleInputChange, handleSubmit, status } = useChat();
+  const { messages, append, status } = useChat();
+  const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const isLoading = status === 'streaming' || status === 'submitted';
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    append({ role: 'user', content: input });
+    setInput('');
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -51,7 +62,7 @@ export default function ChatPage() {
         </ScrollArea>
       </Card>
 
-      <form onSubmit={handleSubmit} className="flex gap-2">
+      <form onSubmit={onSubmit} className="flex gap-2">
         <Input
           value={input}
           onChange={handleInputChange}
