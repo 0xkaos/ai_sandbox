@@ -58,10 +58,11 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
   }, [messages]);
 
   const getMessageText = (message: UIMessage) => {
-    if (message.content) return message.content;
-    return message.parts
-      ?.filter(part => part.type === 'text')
-      .map(part => (part as any).text)
+    const msg = message as any;
+    if (msg.content) return msg.content;
+    return msg.parts
+      ?.filter((part: any) => part.type === 'text')
+      .map((part: any) => part.text)
       .join('') || '';
   };
 
