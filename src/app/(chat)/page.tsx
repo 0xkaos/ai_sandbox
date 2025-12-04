@@ -60,6 +60,7 @@ export default function ChatPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
+    console.log('[chat-ui] sending message', input);
     await sendMessage({ text: input });
     setInput('');
   };
@@ -69,6 +70,11 @@ export default function ChatPage() {
       scrollRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
+
+  useEffect(() => {
+    console.log('[chat-ui] messages updated', messages);
+    console.log('[chat-ui] status', status);
+  }, [messages, status]);
 
   return (
     <div className="flex flex-col h-screen max-w-3xl mx-auto p-4">
