@@ -23,12 +23,11 @@ const stripWrappingQuotes = (value: string) => {
 };
 
 const parseSsePayloadToText = (raw: string) => {
-  if (!raw) return null;
-  const normalized = stripWrappingQuotes(raw).replace(/\\n/g, '\n');
-  if (!normalized.includes('data:')) {
+  if (!raw || raw.indexOf('data:') === -1) {
     return null;
   }
 
+  const normalized = stripWrappingQuotes(raw).replace(/\\n/g, '\n');
   const segments = normalized
     .split('data:')
     .map((segment) => segment.trim())
@@ -42,6 +41,10 @@ const parseSsePayloadToText = (raw: string) => {
     }
 
     const cleaned = segment.replace(/,$/, '');
+    if (!cleaned.startsWith('{') || !cleaned.endsWith('}')) {
+      continue;
+    }
+
     try {
       const payload = JSON.parse(cleaned);
       if (payload?.type === 'text-delta' && typeof payload.delta === 'string') {
@@ -50,16 +53,24 @@ const parseSsePayloadToText = (raw: string) => {
         buffer += payload.text;
       }
     } catch {
-      // Ignore non-JSON chunks (e.g., keep-alive pings)
       continue;
     }
   }
 
-  if (buffer) {
-    return buffer;
+  return buffer || null;
+};
+
+const decodeTextSnippet = (value?: string) => {
+  if (typeof value !== 'string') {
+    return '';
   }
 
-  return segments.filter((segment) => segment !== '[DONE]').join(' ').trim() || null;
+  const decoded = parseSsePayloadToText(value);
+  if (decoded) {
+    return decoded;
+  }
+
+  return value;
 };
 
 const collapseTextParts = (parts?: TextLikePart[]) => {
@@ -69,7 +80,7 @@ const collapseTextParts = (parts?: TextLikePart[]) => {
 
   return parts
     .filter((part) => part?.type === 'text' && typeof part.text === 'string')
-    .map((part) => part.text as string)
+    .map((part) => decodeTextSnippet(part.text))
     .join('');
 };
 
@@ -159,8 +170,7 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
   const getMessageText = (message: UIMessage) => {
     const msg = message as any;
     if (typeof msg.content === 'string') {
-      const decoded = parseSsePayloadToText(msg.content);
-      return decoded ?? msg.content;
+      return decodeTextSnippet(msg.content);
     }
 
     const fromContent = collapseTextParts(msg.content);
