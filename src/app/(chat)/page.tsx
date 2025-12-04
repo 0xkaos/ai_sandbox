@@ -104,7 +104,7 @@ export default function ChatPage() {
                 </div>
               );
             })}
-            {isLoading && (
+            {status === 'submitted' && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-lg px-4 py-2">
                   Thinking...
