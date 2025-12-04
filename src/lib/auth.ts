@@ -33,6 +33,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return true;
     },
+    async jwt({ token, user }) {
+      if (user && user.email) {
+        // On sign in, fetch the user from the database to ensure we have the correct ID
+        const dbUser = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, user.email))
+          .limit(1);
+
+        if (dbUser.length > 0) {
+          token.sub = dbUser[0].id;
+        }
+      }
+      return token;
+    },
     async session({ session, token }) {
       if (session.user && token.sub) {
         session.user.id = token.sub;
