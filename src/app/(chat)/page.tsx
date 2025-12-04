@@ -5,16 +5,23 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function ChatPage() {
-  const { messages, input, handleInputChange, handleSubmit, status } = useChat();
+  const { messages, sendMessage, status } = useChat();
+  const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const isLoading = status === 'streaming' || status === 'submitted';
 
-  const onSubmit = (e: React.FormEvent) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    handleSubmit(e);
+    if (!input.trim()) return;
+    await sendMessage({ role: 'user', content: input });
+    setInput('');
   };
 
   useEffect(() => {
