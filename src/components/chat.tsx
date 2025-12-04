@@ -17,6 +17,7 @@ interface ChatProps {
 export function Chat({ id, initialMessages = [] }: ChatProps) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [input, setInput] = useState('');
   
   // Generate a stable ID for new chats if one isn't provided
   const [chatId] = useState(() => id || crypto.randomUUID());
@@ -32,7 +33,7 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
         router.refresh(); // Refresh to update sidebar
       }
     },
-  }) as any;
+  } as any) as any;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
