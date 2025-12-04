@@ -46,6 +46,15 @@ async function audit() {
       console.log('Error querying messages:', e instanceof Error ? e.message : String(e));
     }
 
+    // Check specific chat if needed
+    console.log('\nChecking specific chat 9b4eac61-ce16-4460-ae9d-8511936abecb...');
+    try {
+      const chat = await db.execute(sql`SELECT * FROM chats WHERE id = '9b4eac61-ce16-4460-ae9d-8511936abecb'`);
+      console.log('Chat found:', chat.rows);
+    } catch (e) {
+      console.log('Error querying specific chat:', e instanceof Error ? e.message : String(e));
+    }
+
   } catch (error) {
     console.error('Audit failed:', error);
   }

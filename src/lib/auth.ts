@@ -35,15 +35,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async jwt({ token, user }) {
       if (user && user.email) {
-        // On sign in, fetch the user from the database to ensure we have the correct ID
-        const dbUser = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, user.email))
-          .limit(1);
+        try {
+          // On sign in, fetch the user from the database to ensure we have the correct ID
+          const dbUser = await db
+            .select()
+            .from(users)
+            .where(eq(users.email, user.email))
+            .limit(1);
 
-        if (dbUser.length > 0) {
-          token.sub = dbUser[0].id;
+          if (dbUser.length > 0) {
+            token.sub = dbUser[0].id;
+          }
+        } catch (error) {
+          console.error('Error fetching user in JWT callback:', error);
         }
       }
       return token;
