@@ -1,5 +1,5 @@
 import { openai } from '@ai-sdk/openai';
-import { streamText, convertToCoreMessages } from 'ai';
+import { streamText } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 
@@ -78,45 +78,42 @@ export async function POST(req: Request) {
     }
 
     // Convert to core messages for the AI SDK
-    console.log('[chat-api] Converting messages');
-    let coreMessages;
-    try {
-      const sanitizedMessages = messages.map((m: any) => {
-        const msg: any = {
-          role: m.role,
-        };
+    console.log('[chat-api] Normalizing messages for model');
+    const normalizeToTextParts = (value: any): Array<{ type: 'text'; text: string }> => {
+      if (typeof value === 'string' && value.length > 0) {
+        return [{ type: 'text', text: value }];
+      }
 
-        const partsArray = Array.isArray(m.parts) ? m.parts : Array.isArray(m.content) ? m.content : undefined;
-        const stringContent = typeof m.content === 'string' ? m.content : undefined;
-
-        if (partsArray?.length) {
-          msg.parts = partsArray.map((part: any) => {
-            if (part?.type === 'text' && typeof part.text === 'string') {
+      if (Array.isArray(value)) {
+        const parts = value
+          .map((part) => {
+            if (!part) return null;
+            if (typeof part === 'string') {
+              return { type: 'text', text: part };
+            }
+            if (part.type === 'text' && typeof part.text === 'string') {
               return { type: 'text', text: part.text };
             }
-            if (part?.text) {
-              return { type: 'text', text: String(part.text) };
+            if (typeof part.text === 'string') {
+              return { type: 'text', text: part.text };
             }
-            return part;
-          });
-        } else if (typeof stringContent === 'string') {
-          msg.content = stringContent;
-        } else {
-          msg.content = '';
+            return null;
+          })
+          .filter(Boolean) as Array<{ type: 'text'; text: string }>;
+
+        if (parts.length > 0) {
+          return parts;
         }
+      }
 
-        if (m.toolInvocations) {
-          msg.toolInvocations = m.toolInvocations;
-        }
+      return [{ type: 'text', text: '' }];
+    };
 
-        return msg;
-      });
-
-      coreMessages = convertToCoreMessages(sanitizedMessages as any);
-    } catch (convertError) {
-      console.error('[chat-api] Error converting messages:', convertError);
-      throw convertError;
-    }
+    const coreMessages = messages.map((m: any) => ({
+      role: m.role,
+      content: normalizeToTextParts(m.parts ?? m.content),
+      ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {}),
+    }));
 
     console.log('[chat-api] Streaming response', {
       totalMessages: coreMessages.length,
