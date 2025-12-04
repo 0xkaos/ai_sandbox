@@ -42,7 +42,14 @@ export async function POST(req: Request) {
     console.log('[chat-api] Saving user message');
     await saveMessage(chatId, { ...lastMessage, createdAt: new Date() });
 
-    const coreMessages = convertToCoreMessages(messages);
+    // Convert to core messages for the AI SDK
+    // We need to ensure the messages are in the correct format for convertToCoreMessages
+    // The SDK expects { role, content } where content can be string or array of parts
+    const coreMessages = convertToCoreMessages(messages.map((m: any) => ({
+      role: m.role,
+      content: m.content,
+      toolInvocations: m.toolInvocations,
+    })));
 
     console.log('[chat-api] Streaming response', {
       totalMessages: coreMessages.length,
