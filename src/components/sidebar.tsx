@@ -19,6 +19,17 @@ export function Sidebar({ chats }: SidebarProps) {
   const router = useRouter();
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
+  const startNewChat = () => {
+    const searchSuffix = Date.now().toString();
+    const nextPath = `/?new=${searchSuffix}`;
+
+    if (pathname === '/') {
+      router.replace(nextPath);
+    } else {
+      router.push(nextPath);
+    }
+  };
+
   const handleDelete = async (chatId: string) => {
     setPendingDelete(chatId);
     try {
@@ -42,12 +53,10 @@ export function Sidebar({ chats }: SidebarProps) {
   return (
     <div className="w-64 border-r h-full flex flex-col bg-muted/10 hidden md:flex">
       <div className="p-4 h-14 flex items-center border-b">
-        <Link href="/" className="w-full">
-          <Button variant="outline" className="w-full justify-start gap-2">
-            <Plus className="h-4 w-4" />
-            New Chat
-          </Button>
-        </Link>
+        <Button type="button" variant="outline" className="w-full justify-start gap-2" onClick={startNewChat}>
+          <Plus className="h-4 w-4" />
+          New Chat
+        </Button>
       </div>
       <div className="flex-1 overflow-auto p-2 space-y-1">
         {chats.map((chat) => {

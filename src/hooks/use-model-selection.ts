@@ -1,20 +1,33 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChatSettings } from '@/components/chat-settings-provider';
 import type { ProviderId } from '@/lib/providers';
 
 export function useModelSelection() {
-  const { provider, model, chatId, setProvider, setModel } = useChatSettings();
+  const {
+    provider,
+    model,
+    chatId,
+    setProvider,
+    setModel,
+    isModelSaving,
+    setIsModelSaving,
+    selectionError,
+    setSelectionError,
+  } = useChatSettings();
   const router = useRouter();
-  const [isSaving, setIsSaving] = useState(false);
 
   const selectModel = useCallback(
     async (nextProvider: ProviderId, nextModel: string) => {
       if (provider === nextProvider && model === nextModel) {
         return;
       }
+
+      setSelectionError(null);
+      const previousProvider = provider;
+      const previousModel = model;
 
       setProvider(nextProvider);
       setModel(nextModel);
@@ -23,7 +36,7 @@ export function useModelSelection() {
         return;
       }
 
-      setIsSaving(true);
+      setIsModelSaving(true);
       try {
         const response = await fetch(`/api/chat/${chatId}`, {
           method: 'PATCH',
@@ -34,25 +47,29 @@ export function useModelSelection() {
         });
 
         if (!response.ok) {
-          console.error('Failed to update chat model', await response.text());
-          return;
+          const errorPayload = await response.text();
+          throw new Error(errorPayload || 'Failed to update chat model');
         }
 
         router.refresh();
       } catch (error) {
         console.error('Error updating chat model', error);
+        setProvider(previousProvider);
+        setModel(previousModel);
+        setSelectionError('Unable to switch models. Staying on the previous selection.');
       } finally {
-        setIsSaving(false);
+        setIsModelSaving(false);
       }
     },
-    [chatId, model, provider, router, setModel, setProvider]
+    [chatId, model, provider, router, setModel, setProvider, setIsModelSaving, setSelectionError]
   );
 
   return {
     provider,
     model,
     chatId,
-    isSaving,
+    isSaving: isModelSaving,
+    errorMessage: selectionError,
     selectModel,
   };
 }

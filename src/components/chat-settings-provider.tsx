@@ -10,6 +10,10 @@ interface ChatSettingsValue {
   chatId: string | null;
   setProvider: (provider: ProviderId) => void;
   setModel: (model: string) => void;
+  isModelSaving: boolean;
+  setIsModelSaving: (value: boolean) => void;
+  selectionError: string | null;
+  setSelectionError: (message: string | null) => void;
   syncFromChat: (options: { provider?: ProviderId; model?: string; chatId?: string | null }) => void;
 }
 
@@ -19,6 +23,8 @@ export function ChatSettingsProvider({ children }: { children: React.ReactNode }
   const [provider, setProvider] = useState<ProviderId>(DEFAULT_PROVIDER_ID);
   const [model, setModel] = useState<string>(DEFAULT_MODEL_ID);
   const [chatId, setChatId] = useState<string | null>(null);
+  const [isModelSaving, setIsModelSaving] = useState(false);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
 
   const syncFromChat = useCallback(
     ({ provider: nextProvider, model: nextModel, chatId: nextChatId }: { provider?: ProviderId; model?: string; chatId?: string | null }) => {
@@ -31,12 +37,26 @@ export function ChatSettingsProvider({ children }: { children: React.ReactNode }
       if (typeof nextChatId !== 'undefined') {
         setChatId(nextChatId);
       }
+      setSelectionError(null);
     },
     []
   );
 
   return (
-    <ChatSettingsContext.Provider value={{ provider, model, chatId, setProvider, setModel, syncFromChat }}>
+    <ChatSettingsContext.Provider
+      value={{
+        provider,
+        model,
+        chatId,
+        setProvider,
+        setModel,
+        isModelSaving,
+        setIsModelSaving,
+        selectionError,
+        setSelectionError,
+        syncFromChat,
+      }}
+    >
       {children}
     </ChatSettingsContext.Provider>
   );

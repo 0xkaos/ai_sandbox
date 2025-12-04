@@ -10,6 +10,7 @@ import { UIMessage } from '@ai-sdk/react';
 import { useRouter } from 'next/navigation';
 import { useChatSettings } from '@/components/chat-settings-provider';
 import type { ProviderId } from '@/lib/providers';
+import { getModelMetadata } from '@/lib/providers';
 import { TextStreamChatTransport } from 'ai';
 
 type TextLikePart = { type?: string; text?: string };
@@ -101,6 +102,7 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const { provider, model, syncFromChat } = useChatSettings();
+  const modelMetadata = useMemo(() => getModelMetadata(provider, model), [model, provider]);
 
   // Generate a stable ID for new chats if one isn't provided
   const [generatedChatId] = useState(() => id || crypto.randomUUID());
@@ -191,22 +193,38 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
       <Card className="flex-1 p-4 mb-4 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
-            {messages.map((m: UIMessage) => (
-              <div
-                key={m.id}
-                className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`rounded-lg px-4 py-2 max-w-[80%] ${
-                    m.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted'
-                  }`}
-                >
-                  {getMessageText(m)}
-                </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span className="uppercase tracking-wide">Model</span>
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <span>{modelMetadata?.label ?? model}</span>
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground border px-1.5 py-0.5 rounded">
+                  {modelMetadata?.providerId ?? provider}
+                </span>
               </div>
-            ))}
+            </div>
+            {messages.map((m: UIMessage) => {
+              const text = getMessageText(m);
+              if (m.role !== 'user' && !text.trim()) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={m.id}
+                  className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`rounded-lg px-4 py-2 max-w-[80%] ${
+                      m.role === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted'
+                    }`}
+                  >
+                    {text}
+                  </div>
+                </div>
+              );
+            })}
             {status === 'submitted' && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-lg px-4 py-2">

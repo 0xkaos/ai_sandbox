@@ -2,11 +2,10 @@
 
 import { PROVIDER_GROUPS, type ProviderId } from '@/lib/providers';
 import { useModelSelection } from '@/hooks/use-model-selection';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export function RightSidebar() {
-  const { provider, model, selectModel, isSaving } = useModelSelection();
+  const { provider, model, selectModel, isSaving, errorMessage } = useModelSelection();
 
   const handleSelect = async (providerId: ProviderId, modelId: string) => {
     await selectModel(providerId, modelId);
@@ -41,10 +40,13 @@ export function RightSidebar() {
                       disabled && 'opacity-50 cursor-not-allowed'
                     )}
                   >
-                    <p className="text-sm font-medium">
-                      {option.label}
-                      {option.comingSoon && <span className="ml-2 text-[11px] uppercase tracking-wide text-muted-foreground">Soon</span>}
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">
+                        {option.label}
+                        {option.comingSoon && <span className="ml-2 text-[11px] uppercase tracking-wide text-muted-foreground">Soon</span>}
+                      </p>
+                      {isActive && <span className="text-[11px] uppercase tracking-wide text-primary">Active</span>}
+                    </div>
                     <p className="text-xs text-muted-foreground">{option.description}</p>
                   </button>
                 );
@@ -55,6 +57,11 @@ export function RightSidebar() {
       </div>
       {isSaving && (
         <div className="px-4 py-2 text-center text-xs text-muted-foreground border-t">Syncing with server…</div>
+      )}
+      {errorMessage && (
+        <div className="px-4 py-2 text-xs text-destructive border-t bg-destructive/10">
+          {errorMessage}
+        </div>
       )}
     </aside>
   );
