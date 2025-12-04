@@ -6,12 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEffect, useRef } from 'react';
-import { Message } from '@ai-sdk/react';
+import { UIMessage } from '@ai-sdk/react';
 import { useRouter } from 'next/navigation';
 
 interface ChatProps {
   id?: string;
-  initialMessages?: Message[];
+  initialMessages?: UIMessage[];
 }
 
 export function Chat({ id, initialMessages = [] }: ChatProps) {
@@ -20,12 +20,11 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
 
   const { messages, input, handleInputChange, handleSubmit, status } = useChat({
     id,
-    initialMessages,
-    body: { id },
+    messages: initialMessages,
     onFinish: () => {
       router.refresh();
     },
-  });
+  }) as any; // Temporary cast to fix type error
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
@@ -35,9 +34,12 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
     }
   }, [messages]);
 
-  const getMessageText = (message: Message) => {
+  const getMessageText = (message: UIMessage) => {
     // Handle different content types if necessary, but for now simple text
-    return message.content;
+    return message.parts
+      .filter(part => part.type === 'text')
+      .map(part => (part as any).text)
+      .join('');
   };
 
   return (
@@ -45,7 +47,7 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
       <Card className="flex-1 p-4 mb-4 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
-            {messages.map(m => (
+            {messages.map((m: UIMessage) => (
               <div
                 key={m.id}
                 className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -57,7 +59,7 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
                       : 'bg-muted'
                   }`}
                 >
-                  {m.content}
+                  {getMessageText(m)}
                 </div>
               </div>
             ))}

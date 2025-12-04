@@ -1,6 +1,5 @@
 import { openai } from '@ai-sdk/openai';
 import { streamText, convertToCoreMessages } from 'ai';
-import { Message } from '@ai-sdk/react';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage } from '@/lib/db/actions';
 
@@ -45,9 +44,9 @@ export async function POST(req: Request) {
         content: text,
         toolInvocations: toolCalls as any,
         createdAt: new Date(),
-      } as Message);
+      });
     },
   });
 
-  return result.toDataStreamResponse();
+  return result.toUIMessageStreamResponse();
 }

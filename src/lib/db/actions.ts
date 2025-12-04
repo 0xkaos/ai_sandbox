@@ -1,7 +1,6 @@
 import { db } from '@/lib/db';
 import { chats, messages } from '@/lib/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
-import { Message } from '@ai-sdk/react';
 
 export async function getChats(userId: string) {
   return await db
@@ -41,12 +40,22 @@ export async function createChat(userId: string, title: string, id?: string) {
   return newChat;
 }
 
-export async function saveMessage(chatId: string, message: Message) {
+export async function saveMessage(chatId: string, message: { id: string; role: string; content: string | any[]; toolInvocations?: any; createdAt?: Date }) {
+  let content = '';
+  if (typeof message.content === 'string') {
+    content = message.content;
+  } else if (Array.isArray(message.content)) {
+    content = message.content
+      .filter((part: any) => part.type === 'text' || part.text)
+      .map((part: any) => part.text || '')
+      .join('');
+  }
+
   await db.insert(messages).values({
     id: message.id,
     chatId,
     role: message.role as 'user' | 'assistant' | 'system' | 'data',
-    content: message.content,
+    content,
     toolInvocations: message.toolInvocations || null,
     createdAt: message.createdAt || new Date(),
   });
