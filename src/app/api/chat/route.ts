@@ -54,8 +54,9 @@ export async function POST(req: Request) {
     const coreMessages = convertToCoreMessages(messages.map((m: any) => ({
       role: m.role,
       content: m.content,
+      parts: m.parts,
       toolInvocations: m.toolInvocations,
-    })));
+    })) as any);
 
     console.log('[chat-api] Streaming response', {
       totalMessages: coreMessages.length,
