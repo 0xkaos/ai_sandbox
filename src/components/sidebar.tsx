@@ -20,14 +20,11 @@ export function Sidebar({ chats }: SidebarProps) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const startNewChat = () => {
-    const searchSuffix = Date.now().toString();
-    const nextPath = `/?new=${searchSuffix}`;
+    const resetKey = crypto.randomUUID();
+    const nextPath = `/?new=${resetKey}`;
 
-    if (pathname === '/') {
-      router.replace(nextPath);
-    } else {
-      router.push(nextPath);
-    }
+    router.push(nextPath);
+    router.refresh();
   };
 
   const handleDelete = async (chatId: string) => {
