@@ -25,24 +25,21 @@ const stripWrappingQuotes = (value: string) => {
 const parseSsePayloadToText = (raw: string) => {
   if (!raw) return null;
   const normalized = stripWrappingQuotes(raw).replace(/\\n/g, '\n');
-  if (!normalized.startsWith('data:')) {
+  if (!normalized.includes('data:')) {
     return null;
   }
 
-  const segments = normalized
-    .split(/data:\s*/g)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
   let buffer = '';
-  for (const segment of segments) {
-    if (segment === '[DONE]') {
+  const objectMatches = normalized.matchAll(/data:\s*(\{[\s\S]*?\})(?=\sdata:|$)/g);
+
+  for (const match of objectMatches) {
+    const jsonChunk = match[1]?.trim();
+    if (!jsonChunk || jsonChunk === '[DONE]') {
       continue;
     }
 
-    const cleaned = segment.replace(/,$/, '').replace(/"$/g, '');
     try {
-      const payload = JSON.parse(cleaned);
+      const payload = JSON.parse(jsonChunk);
       if (payload?.type === 'text-delta' && typeof payload.delta === 'string') {
         buffer += payload.delta;
       } else if (payload?.type === 'text' && typeof payload.text === 'string') {
@@ -53,7 +50,17 @@ const parseSsePayloadToText = (raw: string) => {
     }
   }
 
-  return buffer || null;
+  if (buffer) {
+    return buffer;
+  }
+
+  // Fallback: remove "data:" prefixes and best-effort return plain text
+  const fallback = normalized
+    .replace(/data:\s*\{[\s\S]*?\}(?=\sdata:|$)/g, '')
+    .replace(/data:\s*\[DONE\]/g, '')
+    .trim();
+
+  return fallback || null;
 };
 
 const collapseTextParts = (parts?: TextLikePart[]) => {
