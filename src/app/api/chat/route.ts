@@ -15,11 +15,19 @@ export async function POST(req: Request) {
     }
 
     // Ensure user exists and get correct ID
-    const userId = await ensureUser({
-      id: session.user.id,
-      email: session.user.email,
-      name: session.user.name,
-    });
+    let userId = session.user.id;
+    try {
+      userId = await ensureUser({
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+      });
+      console.log('[chat-api] User verified:', userId);
+    } catch (dbError) {
+      console.error('[chat-api] Database error ensuring user:', dbError);
+      // Fallback to session ID if DB fails, but this might cause FK errors later
+      // We'll proceed and see if we can at least log the error
+    }
 
     const body = await req.json();
     const { messages, id } = body;
@@ -32,22 +40,28 @@ export async function POST(req: Request) {
     }
 
     // Check if chat exists, if not create it
-    const existingChat = await getChat(chatId, userId);
-    if (!existingChat) {
-      console.log('[chat-api] Creating new chat:', chatId);
-      const firstMessageContent = messages[0]?.content;
-      let title = 'New Chat';
-      
-      if (typeof firstMessageContent === 'string') {
-        title = firstMessageContent.substring(0, 50);
-      } else if (Array.isArray(firstMessageContent)) {
-        const textPart = firstMessageContent.find((p: any) => p.type === 'text');
-        if (textPart && textPart.text) {
-          title = textPart.text.substring(0, 50);
+    try {
+      const existingChat = await getChat(chatId, userId);
+      if (!existingChat) {
+        console.log('[chat-api] Creating new chat:', chatId);
+        const firstMessageContent = messages[0]?.content;
+        let title = 'New Chat';
+        
+        if (typeof firstMessageContent === 'string') {
+          title = firstMessageContent.substring(0, 50);
+        } else if (Array.isArray(firstMessageContent)) {
+          const textPart = firstMessageContent.find((p: any) => p.type === 'text');
+          if (textPart && textPart.text) {
+            title = textPart.text.substring(0, 50);
+          }
         }
+        
+        await createChat(userId, title, chatId);
       }
-      
-      await createChat(userId, title, chatId);
+    } catch (chatError) {
+      console.error('[chat-api] Error checking/creating chat:', chatError);
+      // If this fails, we probably can't save messages either, but let's try to continue
+      // to see if it's just a read error or a write error
     }
 
     // Save the user's new message
@@ -61,20 +75,25 @@ export async function POST(req: Request) {
       });
     } catch (error) {
       console.error('[chat-api] Error saving user message:', error);
-      // We don't block the response if saving fails, but it's bad.
-      // Actually, if saving fails, we probably shouldn't continue?
-      // But for now, let's log it and continue so the user gets a response.
     }
 
     // Convert to core messages for the AI SDK
-    // We need to ensure the messages are in the correct format for convertToCoreMessages
-    // The SDK expects { role, content } where content can be string or array of parts
-    const coreMessages = convertToCoreMessages(messages.map((m: any) => ({
-      role: m.role,
-      content: m.content,
-      parts: m.parts,
-      toolInvocations: m.toolInvocations,
-    })) as any);
+    console.log('[chat-api] Converting messages');
+    let coreMessages;
+    try {
+      coreMessages = convertToCoreMessages(messages.map((m: any) => {
+        // Handle both content string and parts array
+        const content = m.parts ? m.parts : m.content;
+        return {
+          role: m.role,
+          content: content,
+          toolInvocations: m.toolInvocations,
+        };
+      }) as any);
+    } catch (convertError) {
+      console.error('[chat-api] Error converting messages:', convertError);
+      throw convertError;
+    }
 
     console.log('[chat-api] Streaming response', {
       totalMessages: coreMessages.length,
@@ -104,7 +123,12 @@ export async function POST(req: Request) {
     return result.toUIMessageStreamResponse();
   } catch (error) {
     console.error('[chat-api] Error processing request:', error);
-    return new Response(JSON.stringify({ error: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }), { 
+    // Return a more detailed error response
+    return new Response(JSON.stringify({ 
+      error: 'Internal Server Error', 
+      details: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    }), { 
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
