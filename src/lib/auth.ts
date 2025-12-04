@@ -34,7 +34,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return true;
     },
     async jwt({ token, user }) {
-      const email = user?.email || token.email;
+      if (user?.email) {
+        token.email = user.email;
+      }
+
+      const email = token.email;
 
       if (email) {
         try {
@@ -52,11 +56,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           console.error('Error fetching user in JWT callback:', error);
         }
       }
+
       return token;
     },
     async session({ session, token }) {
-      if (session.user && token.sub) {
-        session.user.id = token.sub;
+      if (session.user) {
+        if (token.sub) {
+          session.user.id = token.sub;
+        }
+        if (token.email) {
+          session.user.email = token.email as string;
+        }
       }
       return session;
     },
