@@ -8,10 +8,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEffect, useRef, useState } from 'react';
 
 export default function ChatPage() {
-  const { messages, sendMessage, status } = useChat();
+  const { messages, sendMessage, status, isLoading } = useChat();
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isLoading = status === 'streaming' || status === 'submitted';
 
   const getMessageText = (message: (typeof messages)[number]) => {
     const base = message as {
