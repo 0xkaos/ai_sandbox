@@ -27,7 +27,11 @@ export async function POST(req: Request) {
 
   if (hasDataStream) {
     console.log('[chat-api] using data stream response');
-    return maybeDataStream.toDataStreamResponse();
+    const response = maybeDataStream.toDataStreamResponse?.();
+    if (response) {
+      return response;
+    }
+    console.warn('[chat-api] data stream response missing, falling back');
   }
 
   console.log('[chat-api] falling back to text stream response');
