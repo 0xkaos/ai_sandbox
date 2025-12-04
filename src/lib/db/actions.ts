@@ -1,6 +1,37 @@
 import { db } from '@/lib/db';
-import { chats, messages } from '@/lib/db/schema';
+import { chats, messages, users } from '@/lib/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
+
+export async function ensureUser(user: { id: string; email: string; name?: string | null }) {
+  const existingUser = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+
+  if (existingUser.length === 0) {
+    // Check by email
+    const userByEmail = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, user.email))
+      .limit(1);
+      
+    if (userByEmail.length > 0) {
+      return userByEmail[0].id;
+    }
+    
+    // Create new user
+    await db.insert(users).values({
+      id: user.id,
+      email: user.email,
+      name: user.name || 'Anonymous',
+    });
+    return user.id;
+  }
+  
+  return existingUser[0].id;
+}
 
 export async function getChats(userId: string) {
   return await db

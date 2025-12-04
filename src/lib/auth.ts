@@ -34,13 +34,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return true;
     },
     async jwt({ token, user }) {
-      if (user && user.email) {
+      const email = user?.email || token.email;
+
+      if (email) {
         try {
-          // On sign in, fetch the user from the database to ensure we have the correct ID
+          // Always fetch the user from the database to ensure we have the correct ID
           const dbUser = await db
             .select()
             .from(users)
-            .where(eq(users.email, user.email))
+            .where(eq(users.email, email))
             .limit(1);
 
           if (dbUser.length > 0) {

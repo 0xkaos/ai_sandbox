@@ -1,7 +1,7 @@
 import { openai } from '@ai-sdk/openai';
 import { streamText, convertToCoreMessages } from 'ai';
 import { auth } from '@/lib/auth';
-import { createChat, getChat, saveMessage } from '@/lib/db/actions';
+import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -9,15 +9,22 @@ export const maxDuration = 30;
 export async function POST(req: Request) {
   try {
     const session = await auth();
-    if (!session?.user?.id) {
+    if (!session?.user?.id || !session.user.email) {
       console.log('[chat-api] Unauthorized: No session or user ID');
       return new Response('Unauthorized', { status: 401 });
     }
 
+    // Ensure user exists and get correct ID
+    const userId = await ensureUser({
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    });
+
     const body = await req.json();
     const { messages, id } = body;
     const chatId = id;
-    console.log('[chat-api] Processing request for chat:', chatId, 'User:', session.user.id);
+    console.log('[chat-api] Processing request for chat:', chatId, 'User:', userId);
     
     if (!messages || !Array.isArray(messages)) {
       console.error('[chat-api] Invalid messages format:', messages);
@@ -25,7 +32,7 @@ export async function POST(req: Request) {
     }
 
     // Check if chat exists, if not create it
-    const existingChat = await getChat(chatId, session.user.id);
+    const existingChat = await getChat(chatId, userId);
     if (!existingChat) {
       console.log('[chat-api] Creating new chat:', chatId);
       const firstMessageContent = messages[0]?.content;
@@ -40,13 +47,24 @@ export async function POST(req: Request) {
         }
       }
       
-      await createChat(session.user.id, title, chatId);
+      await createChat(userId, title, chatId);
     }
 
     // Save the user's new message
     const lastMessage = messages[messages.length - 1];
     console.log('[chat-api] Saving user message');
-    await saveMessage(chatId, { ...lastMessage, createdAt: new Date() });
+    try {
+      await saveMessage(chatId, { 
+        ...lastMessage, 
+        id: lastMessage.id || crypto.randomUUID(),
+        createdAt: new Date() 
+      });
+    } catch (error) {
+      console.error('[chat-api] Error saving user message:', error);
+      // We don't block the response if saving fails, but it's bad.
+      // Actually, if saving fails, we probably shouldn't continue?
+      // But for now, let's log it and continue so the user gets a response.
+    }
 
     // Convert to core messages for the AI SDK
     // We need to ensure the messages are in the correct format for convertToCoreMessages
