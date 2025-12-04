@@ -1,11 +1,60 @@
 import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
+import type { Account } from 'next-auth';
 import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
+const GOOGLE_SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/calendar.events',
+];
+
+async function persistGoogleTokens(email: string, account?: Account | null) {
+  if (!account || account.provider !== 'google') {
+    return;
+  }
+
+  const updates: Partial<typeof users.$inferInsert> = {};
+
+  if (account.access_token) {
+    updates.googleAccessToken = account.access_token;
+  }
+  if (account.refresh_token) {
+    updates.googleRefreshToken = account.refresh_token;
+  }
+  if (account.expires_at) {
+    updates.googleTokenExpiresAt = new Date(account.expires_at * 1000);
+  }
+  if (account.scope) {
+    updates.googleScopes = account.scope;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return;
+  }
+
+  await db.update(users).set(updates).where(eq(users.email, email));
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google],
+  providers: [
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          prompt: 'consent',
+          access_type: 'offline',
+          response_type: 'code',
+          scope: GOOGLE_SCOPES.join(' '),
+        },
+      },
+    }),
+  ],
   callbacks: {
     async signIn({ user, account, profile }) {
       if (account?.provider === 'google' && user.email) {
@@ -25,6 +74,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               name: user.name || 'Anonymous',
             });
           }
+
+          await persistGoogleTokens(user.email, account);
           return true;
         } catch (error) {
           console.error('Error saving user to DB:', error);
@@ -33,7 +84,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return true;
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user?.email) {
         token.email = user.email;
       }
@@ -42,6 +93,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (email) {
         try {
+          if (account?.provider === 'google') {
+            await persistGoogleTokens(email, account);
+          }
           // Always fetch the user from the database to ensure we have the correct ID
           const dbUser = await db
             .select()

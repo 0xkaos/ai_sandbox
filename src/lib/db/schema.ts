@@ -5,6 +5,10 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   name: text('name'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  googleAccessToken: text('google_access_token'),
+  googleRefreshToken: text('google_refresh_token'),
+  googleTokenExpiresAt: timestamp('google_token_expires_at'),
+  googleScopes: text('google_scopes'),
 });
 
 export const chats = pgTable('chats', {
