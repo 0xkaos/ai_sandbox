@@ -1,16 +1,23 @@
 import { auth } from '@/lib/auth';
-import { getChats } from '@/lib/db/actions';
+import { ensureUser, getChats } from '@/lib/db/actions';
 import { Sidebar } from '@/components/sidebar';
 import { redirect } from 'next/navigation';
 import { UserMenu } from '@/components/user-menu';
 
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.id || !session.user.email) {
     redirect('/api/auth/signin');
   }
 
-  const chats = await getChats(session.user.id);
+  const userId = await ensureUser({
+    id: session.user.id,
+    email: session.user.email,
+    name: session.user.name,
+  });
+
+  const chats = await getChats(userId);
+  console.log('[ChatLayout] Loaded', chats.length, 'chats for user', userId);
 
   return (
     <div className="flex h-screen overflow-hidden">
