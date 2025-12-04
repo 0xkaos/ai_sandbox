@@ -14,9 +14,15 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    const { messages, id } = await req.json();
+    const body = await req.json();
+    const { messages, id } = body;
     const chatId = id;
     console.log('[chat-api] Processing request for chat:', chatId, 'User:', session.user.id);
+    
+    if (!messages || !Array.isArray(messages)) {
+      console.error('[chat-api] Invalid messages format:', messages);
+      return new Response('Invalid messages format', { status: 400 });
+    }
 
     // Check if chat exists, if not create it
     const existingChat = await getChat(chatId, session.user.id);
