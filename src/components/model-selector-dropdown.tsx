@@ -25,7 +25,7 @@ export function ModelSelectorDropdown() {
             <option
               key={`${option.providerId}:${option.id}`}
               value={`${option.providerId}:${option.id}`}
-              disabled={!option.available}
+              disabled={!option.available || option.comingSoon}
             >
               {option.label}
             </option>

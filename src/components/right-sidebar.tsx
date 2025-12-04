@@ -28,7 +28,7 @@ export function RightSidebar() {
             <div className="space-y-2">
               {group.models.map((option) => {
                 const isActive = provider === group.id && model === option.id;
-                const disabled = !option.available;
+                const disabled = !option.available || option.comingSoon;
                 return (
                   <button
                     key={option.id}

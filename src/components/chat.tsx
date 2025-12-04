@@ -12,6 +12,61 @@ import { useChatSettings } from '@/components/chat-settings-provider';
 import type { ProviderId } from '@/lib/providers';
 import { TextStreamChatTransport } from 'ai';
 
+type TextLikePart = { type?: string; text?: string };
+
+const stripWrappingQuotes = (value: string) => {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+};
+
+const parseSsePayloadToText = (raw: string) => {
+  if (!raw) return null;
+  const normalized = stripWrappingQuotes(raw).replace(/\\n/g, '\n');
+  if (!normalized.startsWith('data:')) {
+    return null;
+  }
+
+  const segments = normalized
+    .split(/data:\s*/g)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  let buffer = '';
+  for (const segment of segments) {
+    if (segment === '[DONE]') {
+      continue;
+    }
+
+    const cleaned = segment.replace(/,$/, '').replace(/"$/g, '');
+    try {
+      const payload = JSON.parse(cleaned);
+      if (payload?.type === 'text-delta' && typeof payload.delta === 'string') {
+        buffer += payload.delta;
+      } else if (payload?.type === 'text' && typeof payload.text === 'string') {
+        buffer += payload.text;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return buffer || null;
+};
+
+const collapseTextParts = (parts?: TextLikePart[]) => {
+  if (!Array.isArray(parts)) {
+    return '';
+  }
+
+  return parts
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text as string)
+    .join('');
+};
+
 interface ChatProps {
   id?: string;
   initialMessages?: UIMessage[];
@@ -97,11 +152,17 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
 
   const getMessageText = (message: UIMessage) => {
     const msg = message as any;
-    if (msg.content) return msg.content;
-    return msg.parts
-      ?.filter((part: any) => part.type === 'text')
-      .map((part: any) => part.text)
-      .join('') || '';
+    if (typeof msg.content === 'string') {
+      const decoded = parseSsePayloadToText(msg.content);
+      return decoded ?? msg.content;
+    }
+
+    const fromContent = collapseTextParts(msg.content);
+    if (fromContent) {
+      return fromContent;
+    }
+
+    return collapseTextParts(msg.parts);
   };
 
   return (
