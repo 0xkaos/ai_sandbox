@@ -2,6 +2,7 @@ import { streamText } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
+import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/agent/runtime';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -132,6 +133,34 @@ export async function POST(req: Request) {
       content: normalizeToTextParts(m.parts ?? m.content),
       ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {}),
     }));
+
+    if (isAgentEligible(providerId)) {
+      try {
+        console.log('[chat-api] Routing request to agent runtime');
+        const agentResult = await runAgentWithTools({
+          userId,
+          modelId,
+          messages: coreMessages as CoreChatMessage[],
+        });
+
+        await saveMessage(chatId, {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: agentResult.finalText,
+          toolInvocations: agentResult.toolInvocations,
+          createdAt: new Date(),
+        });
+
+        return new Response(agentResult.stream, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+          },
+        });
+      } catch (agentError) {
+        console.error('[chat-api] Agent runtime failed, falling back to direct model', agentError);
+      }
+    }
 
     console.log('[chat-api] Streaming response', {
       totalMessages: coreMessages.length,
