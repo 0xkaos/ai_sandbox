@@ -22,10 +22,9 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
   // Generate a stable ID for new chats if one isn't provided
   const [chatId] = useState(() => id || crypto.randomUUID());
 
-  // Cast to any to avoid type errors with recent SDK versions where types might be mismatched
-  const { messages, append, status } = useChat({
+  const { messages, sendMessage, status } = useChat({
     id: chatId,
-    initialMessages,
+    messages: initialMessages,
     onFinish: () => {
       // If we're on the home page (no ID prop), navigate to the chat page
       if (!id) {
@@ -33,7 +32,7 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
         router.refresh(); // Refresh to update sidebar
       }
     },
-  } as any) as any;
+  });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
@@ -45,8 +44,13 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
     
     const value = input;
     setInput('');
-    // Use append which is the standard method, cast if necessary by the useChat cast above
-    await append({ role: 'user', content: value });
+    
+    // Use sendMessage which is available in this SDK version
+    // We construct a user message object
+    await sendMessage({ 
+      role: 'user', 
+      content: value 
+    } as any);
   };
 
   const isLoading = status === 'streaming' || status === 'submitted';
