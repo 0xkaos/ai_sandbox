@@ -23,7 +23,7 @@ async function audit() {
       console.log(`User count: ${users.rowCount}`);
       console.log('Sample users:', users.rows);
     } catch (e) {
-      console.log('Error querying users:', e.message);
+      console.log('Error querying users:', e instanceof Error ? e.message : String(e));
     }
 
     // Check chats
@@ -33,7 +33,7 @@ async function audit() {
       console.log(`Chat count: ${chats.rowCount}`);
       console.log('Sample chats:', chats.rows);
     } catch (e) {
-      console.log('Error querying chats:', e.message);
+      console.log('Error querying chats:', e instanceof Error ? e.message : String(e));
     }
 
     // Check messages
@@ -43,7 +43,7 @@ async function audit() {
       console.log(`Message count: ${messages.rowCount}`);
       console.log('Sample messages:', messages.rows);
     } catch (e) {
-      console.log('Error querying messages:', e.message);
+      console.log('Error querying messages:', e instanceof Error ? e.message : String(e));
     }
 
   } catch (error) {
