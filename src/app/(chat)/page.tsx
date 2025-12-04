@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEffect, useRef, useState } from 'react';
+import { UserMenu } from '@/components/user-menu';
 
 export default function ChatPage() {
   const chat = useChat();
@@ -82,6 +83,10 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-screen max-w-3xl mx-auto p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-xl font-bold">AI Sandbox</h1>
+        <UserMenu />
+      </div>
       <Card className="flex-1 p-4 mb-4 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
