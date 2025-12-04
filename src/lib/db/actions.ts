@@ -32,7 +32,7 @@ export async function createChat(userId: string, title: string, id?: string) {
   const [newChat] = await db
     .insert(chats)
     .values({
-      id: id, // Optional, will auto-generate if undefined
+      id: id || crypto.randomUUID(),
       userId,
       title,
     })
