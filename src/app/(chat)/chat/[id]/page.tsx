@@ -2,11 +2,22 @@ import { auth } from '@/lib/auth';
 import { ensureUser, getChat, getChatMessages } from '@/lib/db/actions';
 import { notFound, redirect } from 'next/navigation';
 import { Chat } from '@/components/chat';
+import { headers } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export default async function ChatPage({ params }: { params: { id: string } }) {
+  const headerList = await headers();
+  const matchedPath = headerList.get('x-matched-path');
+  const nextUrl = headerList.get('next-url');
+  const referer = headerList.get('referer');
+
+  if (!params?.id) {
+    console.warn('[ChatPage] Missing chat id', { matchedPath, nextUrl, referer, params });
+    return redirect('/');
+  }
+
   const session = await auth();
   if (!session?.user?.id || !session.user.email) {
     console.log('[ChatPage] No session or user ID, redirecting');
