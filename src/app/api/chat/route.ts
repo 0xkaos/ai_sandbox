@@ -18,22 +18,11 @@ export async function POST(req: Request) {
     messages: coreMessages,
   });
 
-  const maybeDataStream = result as typeof result & {
-    toDataStreamResponse?: () => Response;
-  };
-
-  const hasDataStream = typeof maybeDataStream.toDataStreamResponse === 'function';
-  console.log('[chat-api] stream capabilities', { hasDataStream });
-
-  if (hasDataStream) {
-    console.log('[chat-api] using data stream response');
-    const response = maybeDataStream.toDataStreamResponse?.();
-    if (response) {
-      return response;
-    }
-    console.warn('[chat-api] data stream response missing, falling back');
+  try {
+    console.log('[chat-api] returning UI message stream response');
+    return result.toUIMessageStreamResponse();
+  } catch (error) {
+    console.error('[chat-api] ui stream unavailable, falling back', error);
+    return result.toTextStreamResponse();
   }
-
-  console.log('[chat-api] falling back to text stream response');
-  return result.toTextStreamResponse();
 }
