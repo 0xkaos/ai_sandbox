@@ -63,13 +63,21 @@ export async function getChatMessages(chatId: string) {
     .orderBy(messages.createdAt);
 }
 
-export async function createChat(userId: string, title: string, id?: string) {
+export async function createChat(
+  userId: string,
+  title: string,
+  id?: string,
+  provider: string = 'openai',
+  model: string = 'gpt-4o'
+) {
   const [newChat] = await db
     .insert(chats)
     .values({
       id: id || crypto.randomUUID(),
       userId,
       title,
+      provider,
+      model,
     })
     .returning();
   return newChat;
@@ -106,4 +114,13 @@ export async function deleteChat(chatId: string, userId: string) {
   await db
     .delete(chats)
     .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
+}
+
+export async function updateChatProvider(chatId: string, userId: string, provider: string, model: string) {
+  const [updated] = await db
+    .update(chats)
+    .set({ provider, model, updatedAt: new Date() })
+    .where(and(eq(chats.id, chatId), eq(chats.userId, userId)))
+    .returning();
+  return updated;
 }

@@ -1,7 +1,7 @@
-import { openai } from '@ai-sdk/openai';
 import { streamText } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
+import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { messages, id } = body;
+    const { messages, id, provider: requestedProvider, model: requestedModel } = body;
     const chatId = id;
     console.log('[chat-api] Processing request for chat:', chatId, 'User:', userId);
     
@@ -40,8 +40,12 @@ export async function POST(req: Request) {
     }
 
     // Check if chat exists, if not create it
+    let providerId: ProviderId = DEFAULT_PROVIDER_ID;
+    let modelId: string = DEFAULT_MODEL_ID;
+    let existingChat: Awaited<ReturnType<typeof getChat>>;
+
     try {
-      const existingChat = await getChat(chatId, userId);
+      existingChat = await getChat(chatId, userId);
       if (!existingChat) {
         console.log('[chat-api] Creating new chat:', chatId);
         const firstMessageContent = messages[0]?.content;
@@ -55,13 +59,27 @@ export async function POST(req: Request) {
             title = textPart.text.substring(0, 50);
           }
         }
-        
-        await createChat(userId, title, chatId);
+
+        const normalized = normalizeModelSelection(requestedProvider, requestedModel);
+        providerId = normalized.providerId;
+        modelId = normalized.modelId;
+        await createChat(userId, title, chatId, providerId, modelId);
+      } else {
+        providerId = (existingChat.provider as ProviderId) || DEFAULT_PROVIDER_ID;
+        modelId = existingChat.model || DEFAULT_MODEL_ID;
       }
     } catch (chatError) {
       console.error('[chat-api] Error checking/creating chat:', chatError);
       // If this fails, we probably can't save messages either, but let's try to continue
       // to see if it's just a read error or a write error
+    }
+
+    let modelHandle;
+    try {
+      modelHandle = resolveLanguageModel(providerId, modelId);
+    } catch (modelError) {
+      console.error('[chat-api] Failed to resolve model', { providerId, modelId, error: modelError });
+      return new Response('Model provider not available', { status: 500 });
     }
 
     // Save the user's new message
@@ -118,10 +136,12 @@ export async function POST(req: Request) {
     console.log('[chat-api] Streaming response', {
       totalMessages: coreMessages.length,
       lastRole: coreMessages[coreMessages.length - 1]?.role,
+      providerId,
+      modelId,
     });
 
     const result = streamText({
-      model: openai('gpt-4o'),
+      model: modelHandle,
       messages: coreMessages,
       onFinish: async ({ text, toolCalls }) => {
         console.log('[chat-api] Stream finished, saving assistant response');

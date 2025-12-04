@@ -11,6 +11,8 @@ export const chats = pgTable('chats', {
   id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id).notNull(),
   title: text('title').notNull(),
+  provider: text('provider').notNull().default('openai'),
+  model: text('model').notNull().default('gpt-4o'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

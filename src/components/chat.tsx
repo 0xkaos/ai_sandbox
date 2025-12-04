@@ -5,34 +5,68 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { UIMessage } from '@ai-sdk/react';
 import { useRouter } from 'next/navigation';
+import { useChatSettings } from '@/components/chat-settings-provider';
+import type { ProviderId } from '@/lib/providers';
+import { TextStreamChatTransport } from 'ai';
 
 interface ChatProps {
   id?: string;
   initialMessages?: UIMessage[];
+  initialProvider?: ProviderId;
+  initialModel?: string;
 }
 
-export function Chat({ id, initialMessages = [] }: ChatProps) {
+export function Chat({ id, initialMessages = [], initialProvider, initialModel }: ChatProps) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
-  
+  const { provider, model, syncFromChat } = useChatSettings();
+
   // Generate a stable ID for new chats if one isn't provided
-  const [chatId] = useState(() => id || crypto.randomUUID());
+  const [generatedChatId] = useState(() => id || crypto.randomUUID());
+  const activeChatId = id || generatedChatId;
+
+  const transport = useMemo(
+    () =>
+      new TextStreamChatTransport({
+        api: '/api/chat',
+        body: () => ({
+          provider,
+          model,
+        }),
+      }),
+    [model, provider]
+  );
 
   const { messages, sendMessage, status } = useChat({
-    id: chatId,
+    id: activeChatId,
     messages: initialMessages,
+    transport,
     onFinish: () => {
       // If we're on the home page (no ID prop), navigate to the chat page
       if (!id) {
-        window.history.replaceState({}, '', `/chat/${chatId}`);
+        window.history.replaceState({}, '', `/chat/${activeChatId}`);
+        syncFromChat({ chatId: activeChatId });
         router.refresh(); // Refresh to update sidebar
       }
     },
   });
+
+  useEffect(() => {
+    if (id) {
+      syncFromChat({
+        chatId: id,
+        provider: initialProvider,
+        model: initialModel,
+      });
+      return;
+    }
+
+    syncFromChat({ chatId: null });
+  }, [id, initialModel, initialProvider, syncFromChat]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
@@ -47,7 +81,7 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
     
     // Use sendMessage which is available in this SDK version
     // We construct a user message object
-    await sendMessage({ 
+    await sendMessage({
       role: 'user', 
       content: value 
     } as any);

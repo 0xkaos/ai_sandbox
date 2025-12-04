@@ -2,6 +2,7 @@ import { auth } from '@/lib/auth';
 import { ensureUser, getChat, getChatMessages } from '@/lib/db/actions';
 import { notFound, redirect } from 'next/navigation';
 import { Chat } from '@/components/chat';
+import type { ProviderId } from '@/lib/providers';
 import { headers } from 'next/headers';
 
 type ChatParams = { id: string };
@@ -46,5 +47,12 @@ export default async function ChatPage({ params }: { params: ChatParams | Promis
   const messages = await getChatMessages(chatId);
   console.log('[ChatPage] Found chat with', messages.length, 'messages');
 
-  return <Chat id={chat.id} initialMessages={messages as any} />;
+  return (
+    <Chat
+      id={chat.id}
+      initialMessages={messages as any}
+      initialProvider={chat.provider as ProviderId}
+      initialModel={chat.model}
+    />
+  );
 }

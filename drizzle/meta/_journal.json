@@ -8,6 +8,13 @@
       "when": 1764816941023,
       "tag": "0000_blue_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1764865515946,
+      "tag": "0001_add_provider_columns",
+      "breakpoints": true
     }
   ]
 }

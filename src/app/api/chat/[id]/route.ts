@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth';
-import { ensureUser, getChat, deleteChat } from '@/lib/db/actions';
+import { ensureUser, getChat, deleteChat, updateChatProvider } from '@/lib/db/actions';
+import { getModelMetadata } from '@/lib/providers';
 
 type RouteContext = {
   params: { id: string } | Promise<{ id: string }>;
@@ -39,6 +40,75 @@ export async function DELETE(
     console.error('[chat-delete] Failed to delete chat:', error);
     return new Response(
       JSON.stringify({ error: 'Failed to delete chat' }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
+}
+
+export async function PATCH(
+  req: Request,
+  { params }: RouteContext
+) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id || !session.user.email) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    const resolvedParams = await params;
+    const chatId = resolvedParams?.id;
+    if (!chatId) {
+      return new Response('Chat ID is required', { status: 400 });
+    }
+
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return new Response('Invalid request body', { status: 400 });
+    }
+
+    const metadata = getModelMetadata(body.provider, body.model);
+    if (!metadata) {
+      return new Response(JSON.stringify({ error: 'Unknown model selection' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!metadata.available) {
+      return new Response(JSON.stringify({ error: 'Model not available' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const userId = await ensureUser({
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    });
+
+    const chat = await getChat(chatId, userId);
+    if (!chat) {
+      return new Response('Chat not found', { status: 404 });
+    }
+
+    const updated = await updateChatProvider(chatId, userId, metadata.providerId, metadata.id);
+    if (!updated) {
+      return new Response('Chat not updated', { status: 500 });
+    }
+
+    return Response.json({
+      success: true,
+      provider: metadata.providerId,
+      model: metadata.id,
+    });
+  } catch (error) {
+    console.error('[chat-update] Failed to update chat provider:', error);
+    return new Response(
+      JSON.stringify({ error: 'Failed to update chat provider' }),
       {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
