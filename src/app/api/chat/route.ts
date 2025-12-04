@@ -1,5 +1,5 @@
 import { openai } from '@ai-sdk/openai';
-import { streamText, convertToCoreMessages } from 'ai';
+import { streamText } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 
@@ -81,15 +81,25 @@ export async function POST(req: Request) {
     console.log('[chat-api] Converting messages');
     let coreMessages;
     try {
-      coreMessages = convertToCoreMessages(messages.map((m: any) => {
-        // Handle both content string and parts array
-        const content = m.parts ? m.parts : m.content;
-        return {
+      // Manual conversion to avoid convertToCoreMessages crash
+      coreMessages = messages.map((m: any) => {
+        const msg: any = {
           role: m.role,
-          content: content,
-          toolInvocations: m.toolInvocations,
+          content: m.content,
         };
-      }) as any);
+
+        // If parts exist, they take precedence or are the content
+        if (m.parts && Array.isArray(m.parts) && m.parts.length > 0) {
+          msg.content = m.parts;
+        }
+
+        // Only include toolInvocations if they exist
+        if (m.toolInvocations) {
+          msg.toolInvocations = m.toolInvocations;
+        }
+
+        return msg;
+      });
     } catch (convertError) {
       console.error('[chat-api] Error converting messages:', convertError);
       throw convertError;
