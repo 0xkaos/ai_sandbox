@@ -13,6 +13,46 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isLoading = status === 'streaming' || status === 'submitted';
 
+  const getMessageText = (message: (typeof messages)[number]) => {
+    const base = message as {
+      content?: string;
+      text?: string;
+      parts?: Array<{ type?: string; text?: string } | string>;
+    };
+
+    if (typeof base.content === 'string') {
+      return base.content;
+    }
+
+    if (typeof base.text === 'string') {
+      return base.text;
+    }
+
+    if (Array.isArray(base.parts)) {
+      const text = base.parts
+        .map(part => {
+          if (typeof part === 'string') {
+            return part;
+          }
+
+          if (part?.type === 'text' && typeof part.text === 'string') {
+            return part.text;
+          }
+
+          return '';
+        })
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+
+      if (text) {
+        return text;
+      }
+    }
+
+    return '[no content]';
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
   };
@@ -35,22 +75,25 @@ export default function ChatPage() {
       <Card className="flex-1 p-4 mb-4 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
-            {messages.map(m => (
-              <div
-                key={m.id}
-                className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+            {messages.map(m => {
+              const messageText = getMessageText(m);
+              return (
                 <div
-                  className={`rounded-lg px-4 py-2 max-w-[80%] ${
-                    m.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted'
-                  }`}
+                  key={m.id}
+                  className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  {m.content}
+                  <div
+                    className={`rounded-lg px-4 py-2 max-w-[80%] ${
+                      m.role === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted'
+                    }`}
+                  >
+                    {messageText}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {isLoading && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-lg px-4 py-2">
