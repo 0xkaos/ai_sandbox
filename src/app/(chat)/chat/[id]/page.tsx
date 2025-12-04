@@ -4,17 +4,22 @@ import { notFound, redirect } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { headers } from 'next/headers';
 
+type ChatParams = { id: string };
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default async function ChatPage({ params }: { params: { id: string } }) {
+export default async function ChatPage({ params }: { params: ChatParams | Promise<ChatParams> }) {
   const headerList = await headers();
   const matchedPath = headerList.get('x-matched-path');
   const nextUrl = headerList.get('next-url');
   const referer = headerList.get('referer');
 
-  if (!params?.id) {
-    console.warn('[ChatPage] Missing chat id', { matchedPath, nextUrl, referer, params });
+  const resolvedParams = await params;
+  const chatId = resolvedParams?.id;
+
+  if (!chatId) {
+    console.warn('[ChatPage] Missing chat id', { matchedPath, nextUrl, referer, params: resolvedParams });
     return redirect('/');
   }
 
@@ -30,15 +35,15 @@ export default async function ChatPage({ params }: { params: { id: string } }) {
     name: session.user.name,
   });
 
-  console.log('[ChatPage] Fetching chat:', params.id, 'for user:', userId);
-  const chat = await getChat(params.id, userId);
+  console.log('[ChatPage] Fetching chat:', chatId, 'for user:', userId);
+  const chat = await getChat(chatId, userId);
   
   if (!chat) {
     console.log('[ChatPage] Chat not found or access denied');
     return notFound();
   }
 
-  const messages = await getChatMessages(params.id);
+  const messages = await getChatMessages(chatId);
   console.log('[ChatPage] Found chat with', messages.length, 'messages');
 
   return <Chat id={chat.id} initialMessages={messages as any} />;

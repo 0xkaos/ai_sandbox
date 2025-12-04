@@ -1,5 +1,5 @@
 import { openai } from '@ai-sdk/openai';
-import { streamText } from 'ai';
+import { streamText, convertToCoreMessages } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 
@@ -81,25 +81,38 @@ export async function POST(req: Request) {
     console.log('[chat-api] Converting messages');
     let coreMessages;
     try {
-      // Manual conversion to avoid convertToCoreMessages crash
-      coreMessages = messages.map((m: any) => {
+      const sanitizedMessages = messages.map((m: any) => {
         const msg: any = {
           role: m.role,
-          content: m.content,
         };
 
-        // If parts exist, they take precedence or are the content
-        if (m.parts && Array.isArray(m.parts) && m.parts.length > 0) {
-          msg.content = m.parts;
+        const partsArray = Array.isArray(m.parts) ? m.parts : Array.isArray(m.content) ? m.content : undefined;
+        const stringContent = typeof m.content === 'string' ? m.content : undefined;
+
+        if (partsArray?.length) {
+          msg.parts = partsArray.map((part: any) => {
+            if (part?.type === 'text' && typeof part.text === 'string') {
+              return { type: 'text', text: part.text };
+            }
+            if (part?.text) {
+              return { type: 'text', text: String(part.text) };
+            }
+            return part;
+          });
+        } else if (typeof stringContent === 'string') {
+          msg.content = stringContent;
+        } else {
+          msg.content = '';
         }
 
-        // Only include toolInvocations if they exist
         if (m.toolInvocations) {
           msg.toolInvocations = m.toolInvocations;
         }
 
         return msg;
       });
+
+      coreMessages = convertToCoreMessages(sanitizedMessages as any);
     } catch (convertError) {
       console.error('[chat-api] Error converting messages:', convertError);
       throw convertError;
