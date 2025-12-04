@@ -8,7 +8,7 @@ export const users = pgTable('users', {
 });
 
 export const chats = pgTable('chats', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: text('id').primaryKey(),
   userId: text('user_id').references(() => users.id).notNull(),
   title: text('title').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -16,8 +16,8 @@ export const chats = pgTable('chats', {
 });
 
 export const messages = pgTable('messages', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  chatId: uuid('chat_id').references(() => chats.id, { onDelete: 'cascade' }).notNull(),
+  id: text('id').primaryKey(),
+  chatId: text('chat_id').references(() => chats.id, { onDelete: 'cascade' }).notNull(),
   role: text('role', { enum: ['user', 'assistant', 'system', 'data'] }).notNull(),
   content: text('content').notNull(),
   toolInvocations: jsonb('tool_invocations'), // Store tool calls/results

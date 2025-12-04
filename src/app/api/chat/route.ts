@@ -18,7 +18,18 @@ export async function POST(req: Request) {
   // Check if chat exists, if not create it
   const existingChat = await getChat(chatId, session.user.id);
   if (!existingChat) {
-    const title = messages[0]?.content.substring(0, 50) || 'New Chat';
+    const firstMessageContent = messages[0]?.content;
+    let title = 'New Chat';
+    
+    if (typeof firstMessageContent === 'string') {
+      title = firstMessageContent.substring(0, 50);
+    } else if (Array.isArray(firstMessageContent)) {
+      const textPart = firstMessageContent.find((p: any) => p.type === 'text');
+      if (textPart && textPart.text) {
+        title = textPart.text.substring(0, 50);
+      }
+    }
+    
     await createChat(session.user.id, title, chatId);
   }
 
