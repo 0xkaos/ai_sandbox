@@ -8,7 +8,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEffect, useRef, useState } from 'react';
 
 export default function ChatPage() {
-  const { messages, sendMessage, status, isLoading } = useChat();
+  const chat = useChat();
+  const { messages, sendMessage, status } = chat;
+  const isLoading =
+    typeof (chat as { isLoading?: boolean }).isLoading === 'boolean'
+      ? Boolean((chat as { isLoading?: boolean }).isLoading)
+      : status === 'streaming' || status === 'submitted';
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
