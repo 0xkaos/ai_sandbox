@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { UIMessage } from '@ai-sdk/react';
 import { useRouter } from 'next/navigation';
 
@@ -17,14 +17,28 @@ interface ChatProps {
 export function Chat({ id, initialMessages = [] }: ChatProps) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [input, setInput] = useState('');
 
-  const { messages, input, handleInputChange, handleSubmit, status } = useChat({
+  const { messages, sendMessage, status } = useChat({
     id,
     messages: initialMessages,
     onFinish: () => {
       router.refresh();
     },
-  }) as any; // Temporary cast to fix type error
+  });
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    
+    const value = input;
+    setInput('');
+    await sendMessage({ text: value });
+  };
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
