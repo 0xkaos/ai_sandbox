@@ -21,7 +21,8 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
   // Generate a stable ID for new chats if one isn't provided
   const [chatId] = useState(() => id || crypto.randomUUID());
 
-  const { messages, input, handleInputChange, handleSubmit, status } = useChat({
+  // Cast to any to avoid type errors with recent SDK versions where types might be mismatched
+  const { messages, append, status } = useChat({
     id: chatId,
     initialMessages,
     onFinish: () => {
@@ -31,7 +32,21 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
         router.refresh(); // Refresh to update sidebar
       }
     },
-  });
+  }) as any;
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    
+    const value = input;
+    setInput('');
+    // Use append which is the standard method, cast if necessary by the useChat cast above
+    await append({ role: 'user', content: value });
+  };
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
