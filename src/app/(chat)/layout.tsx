@@ -4,6 +4,9 @@ import { Sidebar } from '@/components/sidebar';
 import { redirect } from 'next/navigation';
 import { UserMenu } from '@/components/user-menu';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session?.user?.id || !session.user.email) {

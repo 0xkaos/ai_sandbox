@@ -3,6 +3,9 @@ import { ensureUser, getChat, getChatMessages } from '@/lib/db/actions';
 import { notFound, redirect } from 'next/navigation';
 import { Chat } from '@/components/chat';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export default async function ChatPage({ params }: { params: { id: string } }) {
   const session = await auth();
   if (!session?.user?.id || !session.user.email) {
