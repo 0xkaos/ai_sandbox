@@ -17,14 +17,13 @@ interface ChatProps {
 export function Chat({ id, initialMessages = [] }: ChatProps) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [input, setInput] = useState('');
   
   // Generate a stable ID for new chats if one isn't provided
   const [chatId] = useState(() => id || crypto.randomUUID());
 
-  const { messages, append, status } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, status } = useChat({
     id: chatId,
-    messages: initialMessages,
+    initialMessages,
     onFinish: () => {
       // If we're on the home page (no ID prop), navigate to the chat page
       if (!id) {
@@ -33,19 +32,6 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
       }
     },
   });
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInput(e.target.value);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    
-    const value = input;
-    setInput('');
-    await append({ role: 'user', content: value });
-  };
 
   const isLoading = status === 'streaming' || status === 'submitted';
 
