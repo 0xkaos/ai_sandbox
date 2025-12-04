@@ -18,12 +18,19 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
+  
+  // Generate a stable ID for new chats if one isn't provided
+  const [chatId] = useState(() => id || crypto.randomUUID());
 
-  const { messages, sendMessage, status } = useChat({
-    id,
+  const { messages, append, status } = useChat({
+    id: chatId,
     messages: initialMessages,
     onFinish: () => {
-      router.refresh();
+      // If we're on the home page (no ID prop), navigate to the chat page
+      if (!id) {
+        window.history.replaceState({}, '', `/chat/${chatId}`);
+        router.refresh(); // Refresh to update sidebar
+      }
     },
   });
 
@@ -37,7 +44,7 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
     
     const value = input;
     setInput('');
-    await sendMessage({ text: value });
+    await append({ role: 'user', content: value });
   };
 
   const isLoading = status === 'streaming' || status === 'submitted';
@@ -49,11 +56,11 @@ export function Chat({ id, initialMessages = [] }: ChatProps) {
   }, [messages]);
 
   const getMessageText = (message: UIMessage) => {
-    // Handle different content types if necessary, but for now simple text
+    if (message.content) return message.content;
     return message.parts
-      .filter(part => part.type === 'text')
+      ?.filter(part => part.type === 'text')
       .map(part => (part as any).text)
-      .join('');
+      .join('') || '';
   };
 
   return (
