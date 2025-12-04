@@ -66,8 +66,13 @@ const decodeTextSnippet = (value?: string) => {
   }
 
   const decoded = parseSsePayloadToText(value);
-  if (decoded) {
+  if (decoded !== null) {
     return decoded;
+  }
+
+  // Hide raw SSE payload text until we have actual decoded content
+  if (value.includes('data:')) {
+    return '';
   }
 
   return value;
