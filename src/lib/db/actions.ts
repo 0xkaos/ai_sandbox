@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { chats, messages, users } from '@/lib/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
+import { unstable_noStore as noStore } from 'next/cache';
 
 export async function ensureUser(user: { id: string; email: string; name?: string | null }) {
   const existingUser = await db
@@ -34,6 +35,7 @@ export async function ensureUser(user: { id: string; email: string; name?: strin
 }
 
 export async function getChats(userId: string) {
+  noStore();
   return await db
     .select()
     .from(chats)
@@ -42,6 +44,7 @@ export async function getChats(userId: string) {
 }
 
 export async function getChat(chatId: string, userId: string) {
+  noStore();
   const chat = await db
     .select()
     .from(chats)
@@ -52,6 +55,7 @@ export async function getChat(chatId: string, userId: string) {
 }
 
 export async function getChatMessages(chatId: string) {
+  noStore();
   return await db
     .select()
     .from(messages)
