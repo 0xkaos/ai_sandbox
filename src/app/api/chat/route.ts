@@ -1,5 +1,6 @@
 import { openai } from '@ai-sdk/openai';
-import { streamText, convertToCoreMessages, Message } from 'ai';
+import { streamText, convertToCoreMessages } from 'ai';
+import { Message } from '@ai-sdk/react';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage } from '@/lib/db/actions';
 

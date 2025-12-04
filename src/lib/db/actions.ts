@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 import { chats, messages } from '@/lib/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
-import { Message } from 'ai';
+import { Message } from '@ai-sdk/react';
 
 export async function getChats(userId: string) {
   return await db

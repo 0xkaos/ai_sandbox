@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEffect, useRef } from 'react';
-import { Message } from 'ai';
+import { Message } from '@ai-sdk/react';
 import { useRouter } from 'next/navigation';
 
 interface ChatProps {
