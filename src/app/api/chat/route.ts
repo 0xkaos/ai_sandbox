@@ -13,5 +13,13 @@ export async function POST(req: Request) {
     messages: coreMessages,
   });
 
+  const maybeDataStream = result as typeof result & {
+    toDataStreamResponse?: () => Response;
+  };
+
+  if (typeof maybeDataStream.toDataStreamResponse === 'function') {
+    return maybeDataStream.toDataStreamResponse();
+  }
+
   return result.toTextStreamResponse();
 }
