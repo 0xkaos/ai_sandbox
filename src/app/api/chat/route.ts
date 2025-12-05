@@ -1,4 +1,4 @@
-import { streamText } from 'ai';
+import { streamText, convertToCoreMessages } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
@@ -113,11 +113,13 @@ export async function POST(req: Request) {
       coreMessages = [
         {
           role: 'system',
-          content: [{ type: 'text', text: IMAGE_TOOL_NUDGE }],
+          content: normalizeToTextParts(IMAGE_TOOL_NUDGE),
         },
         ...coreMessages,
       ];
     }
+
+    const trimmedCoreMessages = trimCoreMessages(coreMessages, 40);
 
     if (isAgentEligible(providerId)) {
       try {
@@ -126,7 +128,7 @@ export async function POST(req: Request) {
           userId,
           providerId,
           modelId,
-          messages: coreMessages as CoreChatMessage[],
+          messages: trimmedCoreMessages as CoreChatMessage[],
         });
 
         await saveMessage(chatId, {
@@ -157,7 +159,7 @@ export async function POST(req: Request) {
 
     const result = streamText({
       model: modelHandle,
-      messages: coreMessages,
+      messages: convertToCoreMessages(trimmedCoreMessages as any),
       onFinish: async ({ text, toolCalls }) => {
         console.log('[chat-api] Stream finished, saving assistant response');
         try {
@@ -243,3 +245,22 @@ function normalizeToTextParts(value: any): Array<{ type: 'text'; text: string }>
 
   return [{ type: 'text', text: '' }];
 }
+
+function trimCoreMessages(messages: Array<{ role: string; content: Array<{ type: 'text'; text: string }>; toolInvocations?: unknown }>, limit = 40) {
+  if (messages.length <= limit) {
+    return messages;
+  }
+
+  const keepIndexes = new Set<number>();
+  const firstSystemIndex = messages.findIndex((message) => message.role === 'system');
+  if (firstSystemIndex !== -1) {
+    keepIndexes.add(firstSystemIndex);
+  }
+
+  const remainingSlots = Math.max(limit - keepIndexes.size, 0);
+  const tailIndexes = messages.map((_, index) => index).slice(-remainingSlots);
+  tailIndexes.forEach((index) => keepIndexes.add(index));
+
+  return messages.filter((_, index) => keepIndexes.has(index));
+}
+
