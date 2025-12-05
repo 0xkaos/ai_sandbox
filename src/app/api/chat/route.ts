@@ -102,7 +102,7 @@ export async function POST(req: Request) {
     // Convert to core messages for the AI SDK
     console.log('[chat-api] Normalizing messages for model');
 
-    let coreMessages = messages.map((m: any) => ({
+    let coreMessages: CoreChatMessage[] = messages.map((m: any) => ({
       role: m.role,
       content: normalizeToTextParts(m.parts ?? m.content),
       ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {}),
@@ -113,7 +113,7 @@ export async function POST(req: Request) {
       coreMessages = [
         {
           role: 'system',
-          content: normalizeToTextParts(IMAGE_TOOL_NUDGE),
+          content: IMAGE_TOOL_NUDGE,
         },
         ...coreMessages,
       ];
@@ -246,7 +246,7 @@ function normalizeToTextParts(value: any): Array<{ type: 'text'; text: string }>
   return [{ type: 'text', text: '' }];
 }
 
-function trimCoreMessages(messages: Array<{ role: string; content: Array<{ type: 'text'; text: string }>; toolInvocations?: unknown }>, limit = 40) {
+function trimCoreMessages(messages: CoreChatMessage[], limit = 40) {
   if (messages.length <= limit) {
     return messages;
   }

@@ -20,7 +20,7 @@ export type CoreTextPart = { type: 'text'; text: string };
 export type CoreChatMessage = {
   id?: string;
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: CoreTextPart[];
+  content: string | CoreTextPart[];
   toolInvocations?: unknown;
 };
 

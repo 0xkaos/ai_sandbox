@@ -11,7 +11,7 @@ const baseImageSchema = z.object({
 
 const openaiImageSchema = baseImageSchema.extend({
   size: z.enum(['256x256', '512x512', '1024x1024', '2048x2048']).optional(),
-  quality: z.enum(['standard', 'hd']).optional(),
+  quality: z.enum(['low', 'medium', 'high', 'auto']).optional(),
 });
 
 const xaiImageSchema = baseImageSchema.extend({
@@ -44,7 +44,7 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
       prompt: input.prompt,
       n: input.count ?? 1,
       size: input.size ?? '1024x1024',
-      quality: input.quality ?? 'standard',
+      quality: input.quality ?? 'auto',
     } as const;
 
     console.log('[image-tool][openai] generating image', {
