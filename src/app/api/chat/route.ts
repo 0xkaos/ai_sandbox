@@ -180,20 +180,18 @@ export async function POST(req: Request) {
           messages: trimmedCoreMessages as CoreChatMessage[],
         });
 
-        await saveMessage(chatId, {
+        const assistantMessage = {
           id: crypto.randomUUID(),
           role: 'assistant',
           content: agentResult.finalText,
           toolInvocations: agentResult.toolInvocations,
           createdAt: new Date(),
-        });
+        } as const;
 
-        return new Response(agentResult.stream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-          },
-        });
+        await saveMessage(chatId, assistantMessage);
+
+        // Send AI SDK-compatible SSE so the client can render tool outputs immediately
+        return buildAiStreamResponse(assistantMessage);
       } catch (agentError) {
         console.error('[chat-api] Agent runtime failed, falling back to direct model', agentError);
       }
@@ -311,5 +309,39 @@ function trimCoreMessages(messages: CoreChatMessage[], limit = 40) {
   tailIndexes.forEach((index) => keepIndexes.add(index));
 
   return messages.filter((_, index) => keepIndexes.has(index));
+}
+
+function buildAiStreamResponse(message: {
+  id: string;
+  role: string;
+  content: string;
+  toolInvocations?: any;
+}) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const payload = {
+        type: 'message',
+        message: {
+          id: message.id,
+          role: message.role,
+          content: [{ type: 'text', text: message.content }],
+          toolInvocations: message.toolInvocations,
+        },
+      };
+
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
 
