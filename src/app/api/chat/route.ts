@@ -120,7 +120,7 @@ export async function POST(req: Request) {
     };
 
     // Helper to sanitize tool content (remove large base64 data from tool results)
-    const sanitizeContent = (content: Array<{ type: 'text'; text: string }>, role: string) => {
+    const sanitizeContent = (content: Array<{ type: 'text'; text: string }>, role: string): Array<{ type: 'text'; text: string }> => {
       if (role !== 'tool') return content;
       
       return content.map(part => {
@@ -133,12 +133,12 @@ export async function POST(req: Request) {
                 ...img,
                 dataUrl: img.dataUrl?.startsWith('data:') ? '<base64_data_truncated>' : img.dataUrl
               }));
-              return { type: 'text', text: JSON.stringify(parsed) };
+              return { type: 'text' as const, text: JSON.stringify(parsed) };
             }
           } catch (e) {
             // Not JSON or failed to parse, return original (or maybe truncate if too long?)
             if (part.text.length > 10000) {
-               return { type: 'text', text: part.text.substring(0, 1000) + '... <truncated_large_content>' };
+               return { type: 'text' as const, text: part.text.substring(0, 1000) + '... <truncated_large_content>' };
             }
           }
         }
