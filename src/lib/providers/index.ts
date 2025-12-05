@@ -21,7 +21,7 @@ interface ProviderGroup {
 }
 
 export const DEFAULT_PROVIDER_ID: ProviderId = 'openai';
-export const DEFAULT_MODEL_ID = 'gpt-5.1';
+export const DEFAULT_MODEL_ID = 'gpt-5.1-codex-max';
 
 const xaiApiKey = process.env.XAI_API_KEY;
 const xaiClient = xaiApiKey

@@ -77,37 +77,45 @@ export async function runAgentWithTools(params: {
   });
 
   const lcMessages = convertMessagesToLangChain(messages);
-  const agentState = await agent.invoke({ messages: lcMessages });
+  let agentState;
+  try {
+    agentState = await agent.invoke({ messages: lcMessages });
+  } catch (error) {
+    const errorText = buildAgentErrorText(error);
+    console.error('[agent-runtime] Agent invoke failed', error);
+    return {
+      stream: buildTextStream(errorText),
+      finalText: errorText,
+      toolInvocations: [],
+    };
+  }
+
   const finalAiMessage = extractLatestAiMessage(agentState.messages);
 
   if (!finalAiMessage) {
-    throw new Error('Agent did not return an assistant message.');
+    const fallbackText = 'Agent did not return a response. Please try again or switch models.';
+    console.warn('[agent-runtime] Missing final AI message');
+    return {
+      stream: buildTextStream(fallbackText),
+      finalText: fallbackText,
+      toolInvocations: [],
+    };
   }
 
   const toolInvocations = extractToolInvocations(agentState.messages);
-  
-  // Hydrate images from imageStore
-  toolInvocations.forEach((inv) => {
-    if (inv.result && typeof inv.result === 'object' && 'images' in inv.result && Array.isArray((inv.result as any).images)) {
-      (inv.result as any).images.forEach((img: any) => {
-        if (img.imageId && imageStore.has(img.imageId)) {
-          img.dataUrl = imageStore.get(img.imageId);
-        }
-      });
-    }
-  });
+  hydrateToolImageResults(toolInvocations, imageStore);
 
   const finalText = getMessageText(finalAiMessage);
-  const safeFinalText = buildAgentResponseText(finalText, toolInvocations);
-
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(textEncoder.encode(safeFinalText));
-      controller.close();
-    },
+  const { text: cleanedText, strippedStoredToken } = stripStoredImagePlaceholders(
+    finalText,
+    toolInvocations,
+    imageStore
+  );
+  const safeFinalText = buildAgentResponseText(cleanedText, toolInvocations, {
+    strippedStoredToken,
   });
 
-  return { stream, finalText: safeFinalText, toolInvocations };
+  return { stream: buildTextStream(safeFinalText), finalText: safeFinalText, toolInvocations };
 }
 
 function convertMessagesToLangChain(messages: CoreChatMessage[]): BaseMessage[] {
@@ -238,15 +246,26 @@ function extractToolInvocations(messages: BaseMessage[]): AgentToolInvocationLog
   return logs;
 }
 
-function buildAgentResponseText(text: string, toolInvocations: AgentToolInvocationLog[]) {
+function buildAgentResponseText(
+  text: string,
+  toolInvocations: AgentToolInvocationLog[],
+  options?: { strippedStoredToken?: boolean }
+) {
   const trimmed = text?.trim();
   if (trimmed) {
+    if (options?.strippedStoredToken && hasImageResults(toolInvocations)) {
+      return `${trimmed}\n\nImages attached below.`.trim();
+    }
     return trimmed;
   }
 
   if (!toolInvocations || toolInvocations.length === 0) {
     console.warn('[agent-runtime] No final text or tool invocations returned; using generic completion message.');
     return 'Completed the requested action.';
+  }
+
+  if (hasImageResults(toolInvocations)) {
+    return 'Generated image results are attached below.';
   }
 
   const summaries = toolInvocations.map((invocation) => {
@@ -266,6 +285,72 @@ function buildAgentResponseText(text: string, toolInvocations: AgentToolInvocati
   const synthesized = summaries.join('\n');
   console.warn('[agent-runtime] Synthesized response from tool activity', synthesized);
   return synthesized;
+}
+
+function stripStoredImagePlaceholders(
+  text: string,
+  toolInvocations: AgentToolInvocationLog[],
+  imageStore?: Map<string, string>
+) {
+  if (!text) {
+    return { text: '', strippedStoredToken: false };
+  }
+
+  let strippedStoredToken = false;
+  const replaced = text.replace(/<stored:([a-zA-Z0-9-]+)>/g, (_match, imageId) => {
+    strippedStoredToken = true;
+    // We intentionally avoid inlining base64 back into the text to keep messages small.
+    // Presence in the store or invocations indicates we can render the image elsewhere.
+    if (imageStore?.has(imageId)) {
+      return '';
+    }
+
+    const hasInvocationImage = toolInvocations.some((inv) => {
+      const result = inv?.result as any;
+      return Array.isArray(result?.images) && result.images.some((img: any) => img?.imageId === imageId);
+    });
+
+    return hasInvocationImage ? '' : _match;
+  });
+
+  return { text: replaced.trim(), strippedStoredToken };
+}
+
+function hydrateToolImageResults(toolInvocations: AgentToolInvocationLog[], imageStore: Map<string, string>) {
+  toolInvocations.forEach((inv) => {
+    if (inv.result && typeof inv.result === 'object' && 'images' in inv.result && Array.isArray((inv.result as any).images)) {
+      (inv.result as any).images.forEach((img: any) => {
+        if (img.imageId && imageStore.has(img.imageId)) {
+          img.dataUrl = imageStore.get(img.imageId);
+        }
+      });
+    }
+  });
+}
+
+function hasImageResults(toolInvocations: AgentToolInvocationLog[]) {
+  return toolInvocations.some((inv) => {
+    const result = inv?.result as any;
+    return Array.isArray(result?.images) && result.images.length > 0;
+  });
+}
+
+function buildTextStream(text: string) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(textEncoder.encode(text));
+      controller.close();
+    },
+  });
+}
+
+function buildAgentErrorText(error: unknown) {
+  const base = 'Tool-assisted response failed.';
+  if (!error) return base;
+  if (error instanceof Error) {
+    return `${base} ${error.message}`.trim();
+  }
+  return `${base} ${String(error)}`.trim();
 }
 
 function createAgentLanguageModel(providerId: ProviderId, modelId: string) {

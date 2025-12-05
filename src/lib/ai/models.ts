@@ -4,4 +4,4 @@ export const customModel = (modelName: string) => {
   return openai(modelName);
 };
 
-export const DEFAULT_MODEL_NAME = 'gpt-4o';
+export const DEFAULT_MODEL_NAME = 'gpt-5.1-codex-max';
