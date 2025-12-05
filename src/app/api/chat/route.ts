@@ -139,6 +139,7 @@ export async function POST(req: Request) {
         console.log('[chat-api] Routing request to agent runtime');
         const agentResult = await runAgentWithTools({
           userId,
+          providerId,
           modelId,
           messages: coreMessages as CoreChatMessage[],
         });

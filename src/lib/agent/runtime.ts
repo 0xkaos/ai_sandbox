@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { createAgent } from 'langchain';
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatXAI } from '@langchain/xai';
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import type { ProviderId } from '@/lib/providers';
 import { buildAgentTools } from '@/lib/agent/tools';
 
 const textEncoder = new TextEncoder();
-const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai'];
+const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
 const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar.
 If the user asks for calendar information, prefer using the calendar tools instead of guessing.
 Be explicit about any changes you make.`;
@@ -38,26 +39,31 @@ export function agentToolsEnabled() {
 }
 
 export function isAgentEligible(providerId: ProviderId) {
-  return agentToolsEnabled() && AGENT_ALLOWED_PROVIDERS.includes(providerId);
+  if (!agentToolsEnabled() || !AGENT_ALLOWED_PROVIDERS.includes(providerId)) {
+    return false;
+  }
+
+  if (providerId === 'xai') {
+    return Boolean(process.env.XAI_API_KEY);
+  }
+
+  return true;
 }
 
 export async function runAgentWithTools(params: {
   userId: string;
+  providerId: ProviderId;
   modelId: string;
   messages: CoreChatMessage[];
 }): Promise<AgentRunResult> {
-  const { userId, modelId, messages } = params;
+  const { userId, providerId, modelId, messages } = params;
   const tools = buildAgentTools(userId);
 
   if (tools.length === 0) {
     throw new Error('No tools are currently configured for the agent.');
   }
 
-  const model = new ChatOpenAI({
-    model: modelId,
-    temperature: 0,
-    streaming: false,
-  });
+  const model = createAgentLanguageModel(providerId, modelId);
 
   const agent = createAgent({
     model,
@@ -202,6 +208,28 @@ function extractToolInvocations(messages: BaseMessage[]): AgentToolInvocationLog
   }
 
   return logs;
+}
+
+function createAgentLanguageModel(providerId: ProviderId, modelId: string) {
+  const commonConfig = {
+    model: modelId,
+    temperature: 0,
+    streaming: false,
+  } as const;
+
+  if (providerId === 'openai') {
+    return new ChatOpenAI(commonConfig);
+  }
+
+  if (providerId === 'xai') {
+    const apiKey = process.env.XAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('XAI_API_KEY must be set to run the agent with xAI models.');
+    }
+    return new ChatXAI({ ...commonConfig, apiKey });
+  }
+
+  throw new Error(`Provider ${providerId} is not supported by the agent runtime.`);
 }
 
 function buildSystemPrompt() {
