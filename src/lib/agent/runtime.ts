@@ -77,29 +77,12 @@ export async function runAgentWithTools(params: {
   });
 
   const lcMessages = convertMessagesToLangChain(messages);
-  let agentState;
-  try {
-    agentState = await agent.invoke({ messages: lcMessages });
-  } catch (error) {
-    const errorText = buildAgentErrorText(error);
-    console.error('[agent-runtime] Agent invoke failed', error);
-    return {
-      stream: buildTextStream(errorText),
-      finalText: errorText,
-      toolInvocations: [],
-    };
-  }
+  const agentState = await agent.invoke({ messages: lcMessages });
 
   const finalAiMessage = extractLatestAiMessage(agentState.messages);
 
   if (!finalAiMessage) {
-    const fallbackText = 'Agent did not return a response. Please try again or switch models.';
-    console.warn('[agent-runtime] Missing final AI message');
-    return {
-      stream: buildTextStream(fallbackText),
-      finalText: fallbackText,
-      toolInvocations: [],
-    };
+    throw new Error('Agent did not return a response.');
   }
 
   const toolInvocations = extractToolInvocations(agentState.messages);
@@ -361,7 +344,8 @@ function createAgentLanguageModel(providerId: ProviderId, modelId: string) {
   } as const;
 
   if (providerId === 'openai') {
-    return new ChatOpenAI(commonConfig);
+    const normalizedModel = normalizeOpenAiAgentModel(modelId);
+    return new ChatOpenAI({ ...commonConfig, model: normalizedModel });
   }
 
   if (providerId === 'xai') {
@@ -373,6 +357,27 @@ function createAgentLanguageModel(providerId: ProviderId, modelId: string) {
   }
 
   throw new Error(`Provider ${providerId} is not supported by the agent runtime.`);
+}
+
+function normalizeOpenAiAgentModel(modelId: string) {
+  const fallback = process.env.AGENT_OPENAI_MODEL || 'gpt-4o';
+  const allowedChatModels = new Set([
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-3.5-turbo',
+  ]);
+
+  if (allowedChatModels.has(modelId)) {
+    return modelId;
+  }
+
+  console.warn('[agent-runtime] Model not chat-compatible for tools, falling back', {
+    requested: modelId,
+    fallback,
+  });
+  return fallback;
 }
 
 function buildSystemPrompt() {
