@@ -9,9 +9,12 @@ import { buildAgentTools } from '@/lib/agent/tools';
 const textEncoder = new TextEncoder();
 const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
 const DEFAULT_AGENT_TIMEZONE = 'America/New_York';
-const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar.
-If the user asks for calendar information, prefer using the calendar tools instead of guessing.
-Be explicit about any changes you make.`;
+const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar and generate images via OpenAI (gpt-image-1), xAI (Grok-2 Image), or Getimg (Seedream v4).
+
+Tooling policies:
+- If the user asks for calendar information, always consult the calendar tools instead of guessing and clearly describe any modifications you make.
+- If the user asks for an image, you must call the most appropriate image generation tool. When their prompt is vague, synthesize a vivid, detailed prompt that reflects their intent (style, subject, lighting, medium). When the user already provides specific guidance, follow it precisely.
+- After every tool invocation, summarize the result so the user knows what happened.`;
 
 export type CoreTextPart = { type: 'text'; text: string };
 export type CoreChatMessage = {

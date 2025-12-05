@@ -7,6 +7,9 @@ import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
+const IMAGE_REQUEST_REGEX = /(generate|create|make|draw|render|paint|sketch|design)\s+(an?\s+)?(image|picture|art|illustration|concept|logo|poster)/i;
+const IMAGE_TOOL_NUDGE = `The user explicitly requested an image. Select and invoke the best available image generation tool (OpenAI gpt-image-1, xAI Grok-2 Image, or Getimg Seedream v4) instead of replying with text. If their prompt lacks detail, elaborate on their concept with creative descriptors before calling the tool. If they provided detailed instructions, follow them exactly.`;
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -98,41 +101,22 @@ export async function POST(req: Request) {
 
     // Convert to core messages for the AI SDK
     console.log('[chat-api] Normalizing messages for model');
-    const normalizeToTextParts = (value: any): Array<{ type: 'text'; text: string }> => {
-      if (typeof value === 'string' && value.length > 0) {
-        return [{ type: 'text', text: value }];
-      }
 
-      if (Array.isArray(value)) {
-        const parts = value
-          .map((part) => {
-            if (!part) return null;
-            if (typeof part === 'string') {
-              return { type: 'text', text: part };
-            }
-            if (part.type === 'text' && typeof part.text === 'string') {
-              return { type: 'text', text: part.text };
-            }
-            if (typeof part.text === 'string') {
-              return { type: 'text', text: part.text };
-            }
-            return null;
-          })
-          .filter(Boolean) as Array<{ type: 'text'; text: string }>;
-
-        if (parts.length > 0) {
-          return parts;
-        }
-      }
-
-      return [{ type: 'text', text: '' }];
-    };
-
-    const coreMessages = messages.map((m: any) => ({
+    let coreMessages = messages.map((m: any) => ({
       role: m.role,
       content: normalizeToTextParts(m.parts ?? m.content),
       ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {}),
     }));
+
+    if (userExplicitlyRequestedImage(messages)) {
+      coreMessages = [
+        {
+          role: 'system',
+          content: [{ type: 'text', text: IMAGE_TOOL_NUDGE }],
+        },
+        ...coreMessages,
+      ];
+    }
 
     if (isAgentEligible(providerId)) {
       try {
@@ -203,4 +187,54 @@ export async function POST(req: Request) {
       headers: { 'Content-Type': 'application/json' }
     });
   }
+}
+
+function userExplicitlyRequestedImage(messages: any[]): boolean {
+  const lastUserMessage = [...messages].reverse().find((m) => m?.role === 'user');
+  if (!lastUserMessage) {
+    return false;
+  }
+
+  const text = getPlainTextFromMessage(lastUserMessage);
+  if (!text) {
+    return false;
+  }
+
+  const explicitToolMention = /gpt[- ]?image|grok|getimg|image tool/i.test(text);
+  return IMAGE_REQUEST_REGEX.test(text) || explicitToolMention;
+}
+
+function getPlainTextFromMessage(message: any): string {
+  const parts = normalizeToTextParts(message?.parts ?? message?.content ?? '');
+  return parts.map((part) => part.text).join(' ').trim();
+}
+
+function normalizeToTextParts(value: any): Array<{ type: 'text'; text: string }> {
+  if (typeof value === 'string' && value.length > 0) {
+    return [{ type: 'text', text: value }];
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((part) => {
+        if (!part) return null;
+        if (typeof part === 'string') {
+          return { type: 'text', text: part };
+        }
+        if (part.type === 'text' && typeof part.text === 'string') {
+          return { type: 'text', text: part.text };
+        }
+        if (typeof part.text === 'string') {
+          return { type: 'text', text: part.text };
+        }
+        return null;
+      })
+      .filter(Boolean) as Array<{ type: 'text'; text: string }>;
+
+    if (parts.length > 0) {
+      return parts;
+    }
+  }
+
+  return [{ type: 'text', text: '' }];
 }
