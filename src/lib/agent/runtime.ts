@@ -7,7 +7,7 @@ import { buildAgentTools } from '@/lib/agent/tools';
 
 const textEncoder = new TextEncoder();
 const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai'];
-const DEFAULT_SYSTEM_PROMPT = `You are an autonomous AI teammate that can read and write the user's Google Calendar.
+const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar.
 If the user asks for calendar information, prefer using the calendar tools instead of guessing.
 Be explicit about any changes you make.`;
 
@@ -62,7 +62,7 @@ export async function runAgentWithTools(params: {
   const agent = createAgent({
     model,
     tools,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    systemPrompt: buildSystemPrompt(),
   });
 
   const lcMessages = convertMessagesToLangChain(messages);
@@ -202,4 +202,20 @@ function extractToolInvocations(messages: BaseMessage[]): AgentToolInvocationLog
   }
 
   return logs;
+}
+
+function buildSystemPrompt() {
+  const now = new Date();
+  const readable = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(now);
+  return `${SYSTEM_PROMPT_BASE}
+Current date/time: ${readable} UTC (${now.toISOString()}).
+Interpret any relative date references (e.g., "tomorrow", "this weekend") using this timestamp unless the user specifies another date.`;
 }

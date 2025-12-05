@@ -12,6 +12,8 @@ import { useChatSettings } from '@/components/chat-settings-provider';
 import type { ProviderId } from '@/lib/providers';
 import { getModelMetadata } from '@/lib/providers';
 import { TextStreamChatTransport } from 'ai';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type TextLikePart = { type?: string; text?: string };
 
@@ -103,6 +105,7 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
   const [input, setInput] = useState('');
   const { provider, model, syncFromChat } = useChatSettings();
   const modelMetadata = useMemo(() => getModelMetadata(provider, model), [model, provider]);
+  const markdownPlugins = useMemo(() => [remarkGfm], []);
 
   // Generate a stable ID for new chats if one isn't provided
   const [generatedChatId] = useState(() => id || crypto.randomUUID());
@@ -214,13 +217,21 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                   className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`rounded-lg px-4 py-2 max-w-[80%] ${
+                    className={`rounded-lg px-4 py-2 max-w-[80%] break-words ${
                       m.role === 'user'
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-muted'
                     }`}
                   >
-                    {text}
+                    {m.role === 'user' ? (
+                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                        {text}
+                      </p>
+                    ) : (
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:underline">
+                        <ReactMarkdown remarkPlugins={markdownPlugins}>{text}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
