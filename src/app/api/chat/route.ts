@@ -102,18 +102,67 @@ export async function POST(req: Request) {
     // Convert to core messages for the AI SDK
     console.log('[chat-api] Normalizing messages for model');
 
-    let coreMessages: CoreChatMessage[] = messages.map((m: any) => ({
-      role: m.role,
-      content: normalizeToTextParts(m.parts ?? m.content),
-      ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {}),
-    }));
+    // Helper to sanitize tool invocations (remove large base64 data)
+    const sanitizeToolInvocations = (invocations: any[]) => {
+      if (!Array.isArray(invocations)) return undefined;
+      return invocations.map((inv) => {
+        if (!inv.result || typeof inv.result !== 'object') return inv;
+        // Clone result to avoid mutating original
+        const result = { ...inv.result };
+        if (Array.isArray(result.images)) {
+          result.images = result.images.map((img: any) => ({
+            ...img,
+            dataUrl: img.dataUrl?.startsWith('data:') ? '<base64_data_truncated>' : img.dataUrl
+          }));
+        }
+        return { ...inv, result };
+      });
+    };
+
+    // Helper to sanitize tool content (remove large base64 data from tool results)
+    const sanitizeContent = (content: Array<{ type: 'text'; text: string }>, role: string) => {
+      if (role !== 'tool') return content;
+      
+      return content.map(part => {
+        if (part.type === 'text' && (part.text.includes('data:image') || part.text.includes('"images"'))) {
+          try {
+            // Attempt to parse JSON and sanitize images
+            const parsed = JSON.parse(part.text);
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.images)) {
+              parsed.images = parsed.images.map((img: any) => ({
+                ...img,
+                dataUrl: img.dataUrl?.startsWith('data:') ? '<base64_data_truncated>' : img.dataUrl
+              }));
+              return { type: 'text', text: JSON.stringify(parsed) };
+            }
+          } catch (e) {
+            // Not JSON or failed to parse, return original (or maybe truncate if too long?)
+            if (part.text.length > 10000) {
+               return { type: 'text', text: part.text.substring(0, 1000) + '... <truncated_large_content>' };
+            }
+          }
+        }
+        return part;
+      });
+    };
+
+    let coreMessages: CoreChatMessage[] = messages.map((m: any) => {
+      const normalizedContent = normalizeToTextParts(m.parts ?? m.content);
+      const sanitizedContent = sanitizeContent(normalizedContent, m.role);
+      
+      return {
+        role: m.role,
+        content: sanitizedContent,
+        ...(m.toolInvocations ? { toolInvocations: sanitizeToolInvocations(m.toolInvocations) } : {}),
+      };
+    });
 
     if (userExplicitlyRequestedImage(messages)) {
       console.log('[chat-api] Image request detected, injecting tool nudge');
       coreMessages = [
         {
           role: 'system',
-          content: IMAGE_TOOL_NUDGE,
+          content: [{ type: 'text', text: IMAGE_TOOL_NUDGE }],
         },
         ...coreMessages,
       ];

@@ -1,8 +1,11 @@
 import { StructuredTool, type StructuredToolInterface } from '@langchain/core/tools';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 
 const OPENAI_IMAGE_MODEL = 'gpt-image-1';
 const XAI_IMAGE_MODEL = 'grok-2-image-1212';
+
+export type ImageStore = Map<string, string>;
 
 const baseImageSchema = z.object({
   prompt: z.string().min(8, 'Prompt must include enough detail (at least 8 characters).'),
@@ -33,18 +36,21 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
   description = 'Generate images with OpenAI gpt-image-1. Provide a detailed prompt and optional size.';
   schema = openaiImageSchema;
 
-  constructor(private readonly apiKey: string) {
+  constructor(private readonly apiKey: string, private readonly imageStore?: ImageStore) {
     super();
   }
 
   protected async _call(input: z.infer<typeof openaiImageSchema>): Promise<string> {
-    const requestBody = {
+    const requestBody: any = {
       model: OPENAI_IMAGE_MODEL,
       prompt: input.prompt,
       n: input.count ?? 1,
       size: input.size ?? '1024x1024',
     };
 
+    // Only add quality if explicitly requested and supported by the model (DALL-E 3 only)
+    // For now, we omit it to ensure compatibility with standard/legacy endpoints
+    
     console.log('[image-tool][openai] generating image', {
       promptPreview: input.prompt.slice(0, 80),
       payloadKeys: Object.keys(requestBody),
@@ -79,8 +85,20 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
         }))
       : [];
 
-    console.log('[image-tool][openai] success', { count: images.length });
-    return JSON.stringify({ provider: 'openai', model: OPENAI_IMAGE_MODEL, count: images.length, images });
+    const sanitizedImages = this.sanitizeImages(images);
+    console.log('[image-tool][openai] success', { count: sanitizedImages.length });
+    return JSON.stringify({ provider: 'openai', model: OPENAI_IMAGE_MODEL, count: sanitizedImages.length, images: sanitizedImages });
+  }
+
+  private sanitizeImages(images: any[]) {
+    return images.map((img) => {
+      if (img.dataUrl && this.imageStore) {
+        const imageId = randomUUID();
+        this.imageStore.set(imageId, img.dataUrl);
+        return { ...img, dataUrl: `<stored:${imageId}>`, imageId };
+      }
+      return img;
+    });
   }
 }
 
@@ -89,7 +107,7 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
   description = 'Generate images with xAI Grok-2 Image. Supply a descriptive prompt and optional aspect ratio.';
   schema = xaiImageSchema;
 
-  constructor(private readonly apiKey: string) {
+  constructor(private readonly apiKey: string, private readonly imageStore?: ImageStore) {
     super();
   }
 
@@ -129,8 +147,20 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
         }))
       : [];
 
-    console.log('[image-tool][xai] success', { count: images.length });
-    return JSON.stringify({ provider: 'xai', model: XAI_IMAGE_MODEL, count: images.length, images });
+    const sanitizedImages = this.sanitizeImages(images);
+    console.log('[image-tool][xai] success', { count: sanitizedImages.length });
+    return JSON.stringify({ provider: 'xai', model: XAI_IMAGE_MODEL, count: sanitizedImages.length, images: sanitizedImages });
+  }
+
+  private sanitizeImages(images: any[]) {
+    return images.map((img) => {
+      if (img.dataUrl && this.imageStore) {
+        const imageId = randomUUID();
+        this.imageStore.set(imageId, img.dataUrl);
+        return { ...img, dataUrl: `<stored:${imageId}>`, imageId };
+      }
+      return img;
+    });
   }
 }
 
@@ -139,7 +169,7 @@ class GenerateGetimgImageTool extends StructuredTool<typeof getimgImageSchema> {
   description = 'Generate images with getimg Seedream v4. Useful for stylized concepts and marketing visuals.';
   schema = getimgImageSchema;
 
-  constructor(private readonly apiKey: string) {
+  constructor(private readonly apiKey: string, private readonly imageStore?: ImageStore) {
     super();
   }
 
@@ -179,8 +209,20 @@ class GenerateGetimgImageTool extends StructuredTool<typeof getimgImageSchema> {
     const rawImages = extractGetimgImages(payload);
     const images = rawImages.map((raw, index) => ({ index, dataUrl: normalizeToDataUrl(raw) }));
 
-    console.log('[image-tool][getimg] success', { count: images.length });
-    return JSON.stringify({ provider: 'getimg', model: 'seedream-v4', count: images.length, images });
+    const sanitizedImages = this.sanitizeImages(images);
+    console.log('[image-tool][getimg] success', { count: sanitizedImages.length });
+    return JSON.stringify({ provider: 'getimg', model: 'seedream-v4', count: sanitizedImages.length, images: sanitizedImages });
+  }
+
+  private sanitizeImages(images: any[]) {
+    return images.map((img) => {
+      if (img.dataUrl && this.imageStore) {
+        const imageId = randomUUID();
+        this.imageStore.set(imageId, img.dataUrl);
+        return { ...img, dataUrl: `<stored:${imageId}>`, imageId };
+      }
+      return img;
+    });
   }
 }
 
@@ -225,20 +267,20 @@ function normalizeToDataUrl(value: string) {
   return value.startsWith('data:') ? value : dataUrlFromBase64(value);
 }
 
-export function getImageGeneratorTools(): StructuredToolInterface[] {
+export function getImageGeneratorTools(imageStore?: ImageStore): StructuredToolInterface[] {
   const tools: StructuredToolInterface[] = [];
   const openaiKey = process.env.OPENAI_API_KEY;
   const xaiKey = process.env.XAI_API_KEY;
   const getimgKey = process.env.GETIMG_API_KEY;
 
   if (openaiKey) {
-    tools.push(new GenerateOpenAIImageTool(openaiKey));
+    tools.push(new GenerateOpenAIImageTool(openaiKey, imageStore));
   }
   if (xaiKey) {
-    tools.push(new GenerateXAIImageTool(xaiKey));
+    tools.push(new GenerateXAIImageTool(xaiKey, imageStore));
   }
   if (getimgKey) {
-    tools.push(new GenerateGetimgImageTool(getimgKey));
+    tools.push(new GenerateGetimgImageTool(getimgKey, imageStore));
   }
 
   return tools;

@@ -61,7 +61,8 @@ export async function runAgentWithTools(params: {
   messages: CoreChatMessage[];
 }): Promise<AgentRunResult> {
   const { userId, providerId, modelId, messages } = params;
-  const tools = buildAgentTools(userId);
+  const imageStore = new Map<string, string>();
+  const tools = buildAgentTools(userId, imageStore);
 
   if (tools.length === 0) {
     throw new Error('No tools are currently configured for the agent.');
@@ -84,6 +85,18 @@ export async function runAgentWithTools(params: {
   }
 
   const toolInvocations = extractToolInvocations(agentState.messages);
+  
+  // Hydrate images from imageStore
+  toolInvocations.forEach((inv) => {
+    if (inv.result && typeof inv.result === 'object' && 'images' in inv.result && Array.isArray((inv.result as any).images)) {
+      (inv.result as any).images.forEach((img: any) => {
+        if (img.imageId && imageStore.has(img.imageId)) {
+          img.dataUrl = imageStore.get(img.imageId);
+        }
+      });
+    }
+  });
+
   const finalText = getMessageText(finalAiMessage);
   const safeFinalText = buildAgentResponseText(finalText, toolInvocations);
 
@@ -202,11 +215,21 @@ function extractToolInvocations(messages: BaseMessage[]): AgentToolInvocationLog
   for (const message of messages) {
     if (message instanceof ToolMessage) {
       const callMeta = toolCallsById.get(message.tool_call_id);
+      let result: unknown = getMessageText(message);
+      try {
+        if (typeof result === 'string') {
+          const parsed = JSON.parse(result);
+          result = parsed;
+        }
+      } catch {
+        // ignore
+      }
+
       logs.push({
         toolCallId: message.tool_call_id ?? null,
         name: message.name ?? callMeta?.name ?? null,
         args: callMeta?.args,
-        result: getMessageText(message),
+        result,
         error: message.status === 'error' ? getMessageText(message) : undefined,
       });
     }
@@ -231,16 +254,12 @@ function buildAgentResponseText(text: string, toolInvocations: AgentToolInvocati
     if (invocation.error) {
       return `${name} failed: ${invocation.error}`;
     }
-    if (typeof invocation.result === 'string') {
-      try {
-        const parsed = JSON.parse(invocation.result);
-        if (parsed?.provider && parsed?.model) {
-          return `Generated output with ${parsed.provider} (${parsed.model}).`;
-        }
-      } catch {
-        /* ignore */
-      }
+    
+    const resultObj = invocation.result as any;
+    if (resultObj?.provider && resultObj?.model) {
+      return `Generated output with ${resultObj.provider} (${resultObj.model}).`;
     }
+    
     return `${name} completed successfully.`;
   });
 
