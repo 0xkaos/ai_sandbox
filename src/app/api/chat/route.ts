@@ -320,7 +320,7 @@ function buildAiStreamResponse(message: {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const payload = {
+      const messagePayload = {
         type: 'message',
         message: {
           id: message.id,
@@ -330,7 +330,13 @@ function buildAiStreamResponse(message: {
         },
       };
 
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      const textPayload = {
+        type: 'text',
+        text: message.content,
+      };
+
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(messagePayload)}\n\n`));
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(textPayload)}\n\n`));
       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller.close();
     },
