@@ -230,6 +230,7 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                     ) : (
                       <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:underline">
                         <ReactMarkdown remarkPlugins={markdownPlugins}>{text}</ReactMarkdown>
+                        <ImageToolOutputs rawInvocations={(m as any).toolInvocations} />
                       </div>
                     )}
                   </div>
@@ -261,4 +262,140 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
       </form>
     </div>
   );
+}
+
+type ToolInvocationLike = {
+  name?: string | null;
+  args?: Record<string, unknown> | null;
+  result?: unknown;
+  error?: string;
+};
+
+type ImageGenerationResult = {
+  key: string;
+  provider: string;
+  model: string;
+  prompt?: string | null;
+  revisedPrompt?: string | null;
+  images: Array<{ url: string; index: number; revisedPrompt?: string | null }>;
+};
+
+function ImageToolOutputs({ rawInvocations }: { rawInvocations: unknown }) {
+  const results = useMemo(() => extractImageResults(rawInvocations), [rawInvocations]);
+
+  if (results.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {results.map((result) => (
+        <div key={result.key} className="rounded-md border border-border bg-background/80 text-foreground p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+            <span>{result.provider}</span>
+            <span className="text-[11px] font-medium">{result.model}</span>
+          </div>
+          {(result.prompt || result.revisedPrompt) && (
+            <p className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap">
+              <strong className="font-semibold text-foreground">Prompt:</strong>{' '}
+              {result.revisedPrompt ?? result.prompt}
+            </p>
+          )}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {result.images.map((image) => (
+              <div key={`${result.key}-${image.index}`} className="overflow-hidden rounded-md border bg-background">
+                <img src={image.url} alt={result.revisedPrompt ?? result.prompt ?? 'Generated image'} className="w-full h-auto object-cover" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function extractImageResults(rawInvocations: unknown): ImageGenerationResult[] {
+  const invocations = normalizeToolInvocations(rawInvocations);
+  const results: ImageGenerationResult[] = [];
+
+  invocations.forEach((invocation, index) => {
+    if (!invocation || invocation.error) {
+      return;
+    }
+
+    const parsed = parseToolResult(invocation.result);
+    if (!parsed || !Array.isArray(parsed.images) || parsed.images.length === 0) {
+      return;
+    }
+
+    const images = parsed.images
+      .map((image: any, imageIndex: number) => {
+        const url = typeof image?.dataUrl === 'string' ? image.dataUrl : typeof image?.url === 'string' ? image.url : null;
+        if (!url) {
+          return null;
+        }
+        return {
+          url,
+          index: typeof image?.index === 'number' ? image.index : imageIndex,
+          revisedPrompt: image?.revisedPrompt ?? parsed?.revisedPrompt ?? null,
+        };
+      })
+      .filter(Boolean) as Array<{ url: string; index: number; revisedPrompt?: string | null }>;
+
+    if (images.length === 0) {
+      return;
+    }
+
+    results.push({
+      key: `${invocation.name ?? 'image'}-${index}`,
+      provider: String(parsed.provider ?? invocation.name ?? 'image-tool').toUpperCase(),
+      model: String(parsed.model ?? 'unknown'),
+      prompt: parsed.prompt ?? (invocation.args && typeof invocation.args.prompt === 'string' ? invocation.args.prompt : null),
+      revisedPrompt: parsed.revisedPrompt ?? images[0]?.revisedPrompt ?? null,
+      images,
+    });
+  });
+
+  return results;
+}
+
+function normalizeToolInvocations(raw: unknown): ToolInvocationLike[] {
+  if (!raw) {
+    return [];
+  }
+
+  if (Array.isArray(raw)) {
+    return raw as ToolInvocationLike[];
+  }
+
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as ToolInvocationLike[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function parseToolResult(result: unknown) {
+  if (!result) {
+    return null;
+  }
+
+  if (typeof result === 'string') {
+    try {
+      return JSON.parse(result);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof result === 'object') {
+    return result as Record<string, unknown>;
+  }
+
+  return null;
 }
