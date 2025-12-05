@@ -68,7 +68,7 @@ export async function createChat(
   title: string,
   id?: string,
   provider: string = 'openai',
-  model: string = 'gpt-5.1-codex-max'
+  model: string = 'gpt-5.1'
 ) {
   const [newChat] = await db
     .insert(chats)

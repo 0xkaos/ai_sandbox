@@ -21,7 +21,7 @@ interface ProviderGroup {
 }
 
 export const DEFAULT_PROVIDER_ID: ProviderId = 'openai';
-export const DEFAULT_MODEL_ID = 'gpt-5.1-codex-max';
+export const DEFAULT_MODEL_ID = 'gpt-5.1';
 
 const xaiApiKey = process.env.XAI_API_KEY;
 const xaiClient = xaiApiKey
@@ -38,65 +38,9 @@ export const PROVIDER_GROUPS: ProviderGroup[] = [
     description: 'Balanced performance and broad tool support.',
     models: [
       {
-        id: 'gpt-5.1-codex-max',
-        label: 'GPT-5.1 Codex Max',
-        description: 'Most capable Codex model for long-horizon, agentic coding.',
-        providerId: 'openai',
-        capability: 'code',
-        available: true,
-      },
-      {
-        id: 'gpt-5.1-codex',
-        label: 'GPT-5.1 Codex',
-        description: 'Optimized for agentic coding in Codex flows.',
-        providerId: 'openai',
-        capability: 'code',
-        available: true,
-      },
-      {
         id: 'gpt-5.1',
         label: 'GPT-5.1',
         description: 'Best general reasoning model with configurable effort.',
-        providerId: 'openai',
-        capability: 'general',
-        available: true,
-      },
-      {
-        id: 'gpt-5-pro',
-        label: 'GPT-5 Pro',
-        description: 'Higher precision version tuned for strategic problem solving.',
-        providerId: 'openai',
-        capability: 'reasoning',
-        available: true,
-      },
-      {
-        id: 'gpt-5',
-        label: 'GPT-5',
-        description: 'Previous-gen reasoning model with configurable depth.',
-        providerId: 'openai',
-        capability: 'general',
-        available: true,
-      },
-      {
-        id: 'gpt-5-codex',
-        label: 'GPT-5 Codex',
-        description: 'Agentic coding model tuned for iterative code changes.',
-        providerId: 'openai',
-        capability: 'code',
-        available: true,
-      },
-      {
-        id: 'gpt-5-mini',
-        label: 'GPT-5 Mini',
-        description: 'Cost-efficient for short, well-defined tasks.',
-        providerId: 'openai',
-        capability: 'general',
-        available: true,
-      },
-      {
-        id: 'gpt-5-nano',
-        label: 'GPT-5 Nano',
-        description: 'Fastest option for utility prompts and automations.',
         providerId: 'openai',
         capability: 'general',
         available: true,
