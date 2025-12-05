@@ -8,6 +8,7 @@ import { buildAgentTools } from '@/lib/agent/tools';
 
 const textEncoder = new TextEncoder();
 const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
+const DEFAULT_AGENT_TIMEZONE = 'America/New_York';
 const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar.
 If the user asks for calendar information, prefer using the calendar tools instead of guessing.
 Be explicit about any changes you make.`;
@@ -234,16 +235,38 @@ function createAgentLanguageModel(providerId: ProviderId, modelId: string) {
 
 function buildSystemPrompt() {
   const now = new Date();
-  const readable = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'UTC',
+  const timeZone = process.env.AGENT_TIMEZONE || DEFAULT_AGENT_TIMEZONE;
+  const { readable, label } = formatDateInTimeZone(now, timeZone);
+
+  return `${SYSTEM_PROMPT_BASE}
+Current date/time: ${readable} (${label}, ${timeZone}).
+Reference UTC timestamp: ${now.toISOString()}.
+Interpret any relative date references (e.g., "tomorrow", "this weekend") using this timestamp unless the user specifies another date.`;
+}
+
+function formatDateInTimeZone(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-  }).format(now);
-  return `${SYSTEM_PROMPT_BASE}
-Current date/time: ${readable} UTC (${now.toISOString()}).
-Interpret any relative date references (e.g., "tomorrow", "this weekend") using this timestamp unless the user specifies another date.`;
+    timeZoneName: 'short',
+  });
+
+  const readable = formatter.format(date);
+  const label = extractTimeZoneName(formatter, date) || timeZone;
+  return { readable, label };
+}
+
+function extractTimeZoneName(formatter: Intl.DateTimeFormat, date: Date) {
+  if (typeof formatter.formatToParts !== 'function') {
+    return null;
+  }
+
+  const parts = formatter.formatToParts(date);
+  const timeZoneName = parts.find((part) => part.type === 'timeZoneName');
+  return timeZoneName?.value ?? null;
 }
