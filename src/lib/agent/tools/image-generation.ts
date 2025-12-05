@@ -40,6 +40,12 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
   }
 
   protected async _call(input: z.infer<typeof openaiImageSchema>): Promise<string> {
+    console.log('[image-tool][openai] generating image', {
+      promptPreview: input.prompt.slice(0, 80),
+      size: input.size ?? '1024x1024',
+      quality: input.quality ?? 'standard',
+      count: input.count ?? 1,
+    });
     const response = await fetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -60,6 +66,7 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
     const payload = await response.json();
     if (!response.ok) {
       const message = payload?.error?.message ?? 'Failed to generate image with OpenAI.';
+      console.error('[image-tool][openai] failed', message);
       throw new Error(message);
     }
 
@@ -71,6 +78,7 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
         }))
       : [];
 
+    console.log('[image-tool][openai] success', { count: images.length });
     return JSON.stringify({ provider: 'openai', model: OPENAI_IMAGE_MODEL, count: images.length, images });
   }
 }
@@ -85,6 +93,11 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
   }
 
   protected async _call(input: z.infer<typeof xaiImageSchema>): Promise<string> {
+    console.log('[image-tool][xai] generating image', {
+      promptPreview: input.prompt.slice(0, 80),
+      aspectRatio: input.aspectRatio ?? '1:1',
+      count: input.count ?? 1,
+    });
     const response = await fetch('https://api.x.ai/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -103,6 +116,7 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
     const payload = await response.json();
     if (!response.ok) {
       const message = payload?.error?.message ?? 'Failed to generate image with xAI.';
+      console.error('[image-tool][xai] failed', message);
       throw new Error(message);
     }
 
@@ -114,6 +128,7 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
         }))
       : [];
 
+    console.log('[image-tool][xai] success', { count: images.length });
     return JSON.stringify({ provider: 'xai', model: XAI_IMAGE_MODEL, count: images.length, images });
   }
 }
@@ -128,6 +143,12 @@ class GenerateGetimgImageTool extends StructuredTool<typeof getimgImageSchema> {
   }
 
   protected async _call(input: z.infer<typeof getimgImageSchema>): Promise<string> {
+    console.log('[image-tool][getimg] generating image', {
+      promptPreview: input.prompt.slice(0, 80),
+      ratio: input.ratio ?? '1:1',
+      width: input.width,
+      height: input.height,
+    });
     const { width, height } = resolveGetimgDimensions(input);
     const response = await fetch('https://api.getimg.ai/v1/seedream-v4/text-to-image', {
       method: 'POST',
@@ -150,12 +171,14 @@ class GenerateGetimgImageTool extends StructuredTool<typeof getimgImageSchema> {
     const payload = await response.json();
     if (!response.ok) {
       const message = payload?.error ?? payload?.message ?? 'Failed to generate image with getimg.';
+      console.error('[image-tool][getimg] failed', message);
       throw new Error(typeof message === 'string' ? message : 'Failed to generate image with getimg.');
     }
 
     const rawImages = extractGetimgImages(payload);
     const images = rawImages.map((raw, index) => ({ index, dataUrl: normalizeToDataUrl(raw) }));
 
+    console.log('[image-tool][getimg] success', { count: images.length });
     return JSON.stringify({ provider: 'getimg', model: 'seedream-v4', count: images.length, images });
   }
 }

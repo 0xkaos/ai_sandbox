@@ -83,17 +83,18 @@ export async function runAgentWithTools(params: {
     throw new Error('Agent did not return an assistant message.');
   }
 
-  const finalText = getMessageText(finalAiMessage);
   const toolInvocations = extractToolInvocations(agentState.messages);
+  const finalText = getMessageText(finalAiMessage);
+  const safeFinalText = buildAgentResponseText(finalText, toolInvocations);
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(textEncoder.encode(finalText));
+      controller.enqueue(textEncoder.encode(safeFinalText));
       controller.close();
     },
   });
 
-  return { stream, finalText, toolInvocations };
+  return { stream, finalText: safeFinalText, toolInvocations };
 }
 
 function convertMessagesToLangChain(messages: CoreChatMessage[]): BaseMessage[] {
@@ -212,6 +213,37 @@ function extractToolInvocations(messages: BaseMessage[]): AgentToolInvocationLog
   }
 
   return logs;
+}
+
+function buildAgentResponseText(text: string, toolInvocations: AgentToolInvocationLog[]) {
+  const trimmed = text?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  if (!toolInvocations || toolInvocations.length === 0) {
+    return 'Completed the requested action.';
+  }
+
+  const summaries = toolInvocations.map((invocation) => {
+    const name = invocation.name ?? 'tool';
+    if (invocation.error) {
+      return `${name} failed: ${invocation.error}`;
+    }
+    if (typeof invocation.result === 'string') {
+      try {
+        const parsed = JSON.parse(invocation.result);
+        if (parsed?.provider && parsed?.model) {
+          return `Generated output with ${parsed.provider} (${parsed.model}).`;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return `${name} completed successfully.`;
+  });
+
+  return summaries.join('\n');
 }
 
 function createAgentLanguageModel(providerId: ProviderId, modelId: string) {
