@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   createCalendarEvent,
   listCalendarEvents,
+  updateCalendarEvent,
 } from '@/lib/google/calendar';
 
 const listEventsSchema = z.object({
@@ -27,6 +28,35 @@ const createEventSchema = z.object({
   timeZone: z.string().optional(),
   attendees: z.array(attendeeSchema).optional(),
 });
+
+const updateEventSchema = z
+  .object({
+    calendarId: z.string().min(1).optional(),
+    eventId: z.string().min(1, 'eventId is required.'),
+    summary: z.string().min(1).optional(),
+    description: z.string().optional(),
+    location: z.string().optional(),
+    startTime: z.string().datetime().optional(),
+    endTime: z.string().datetime().optional(),
+    timeZone: z.string().optional(),
+    attendees: z.array(attendeeSchema).optional(),
+  })
+  .refine(
+    (data) =>
+      Boolean(
+        data.summary ||
+          data.description ||
+          data.location ||
+          (data.startTime && data.endTime) ||
+          data.timeZone ||
+          (data.attendees && data.attendees.length > 0)
+      ),
+    { message: 'Provide at least one field to update besides IDs.' }
+  )
+  .refine(
+    (data) => (!data.startTime && !data.endTime) || (data.startTime && data.endTime),
+    { message: 'startTime and endTime must be provided together when updating times.' }
+  );
 
 export class ListCalendarEventsTool extends StructuredTool<typeof listEventsSchema> {
   name = 'google_calendar_list_events';
@@ -81,6 +111,35 @@ export class CreateCalendarEventTool extends StructuredTool<typeof createEventSc
   }
 }
 
+export class UpdateCalendarEventTool extends StructuredTool<typeof updateEventSchema> {
+  name = 'google_calendar_update_event';
+  description =
+    'Update an existing Google Calendar event by ID. Use this when the user wants to modify details (time, description, etc.) without creating a duplicate.';
+  schema = updateEventSchema;
+
+  constructor(private readonly userId: string) {
+    super();
+  }
+
+  protected async _call(input: z.infer<typeof updateEventSchema>): Promise<string> {
+    try {
+      const event = await updateCalendarEvent(this.userId, input);
+      return JSON.stringify({
+        calendarId: input.calendarId ?? 'primary',
+        event,
+      });
+    } catch (error) {
+      throw new Error(
+        `Unable to update calendar event: ${error instanceof Error ? error.message : 'Unknown error.'}`
+      );
+    }
+  }
+}
+
 export function getGoogleCalendarTools(userId: string) {
-  return [new ListCalendarEventsTool(userId), new CreateCalendarEventTool(userId)];
+  return [
+    new ListCalendarEventsTool(userId),
+    new CreateCalendarEventTool(userId),
+    new UpdateCalendarEventTool(userId),
+  ];
 }

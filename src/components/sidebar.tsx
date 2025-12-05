@@ -63,10 +63,12 @@ export function Sidebar({ chats }: SidebarProps) {
               <Link href={`/chat/${chat.id}`} className="flex-1 block">
                 <Button 
                   variant={isActive ? "secondary" : "ghost"} 
-                  className="w-full justify-start h-auto py-3 px-4"
+                  className="w-full justify-start h-auto py-3 px-4 min-w-0 gap-2"
                 >
-                  <MessageSquare className="h-4 w-4 mr-2 shrink-0" />
-                  <span className="truncate text-sm font-normal">{chat.title}</span>
+                  <MessageSquare className="h-4 w-4 shrink-0" />
+                  <span className="text-sm font-normal text-left whitespace-normal break-words">
+                    {chat.title}
+                  </span>
                 </Button>
               </Link>
               <Button

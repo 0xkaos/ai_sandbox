@@ -37,6 +37,18 @@ export type CreateCalendarEventInput = {
   attendees?: Array<{ email: string; optionalName?: string }>;
 };
 
+export type UpdateCalendarEventInput = {
+  calendarId?: string;
+  eventId: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+  startTime?: string;
+  endTime?: string;
+  timeZone?: string;
+  attendees?: Array<{ email: string; optionalName?: string }>;
+};
+
 export async function getCalendarClient(userId: string): Promise<calendar_v3.Calendar> {
   const { accessToken } = await getValidGoogleAccessToken(userId);
   if (!accessToken) {
@@ -88,6 +100,19 @@ export async function listCalendarEvents(
   return (response.data.items ?? []).map(normalizeCalendarEvent);
 }
 
+export async function getCalendarEvent(
+  userId: string,
+  calendarId: string = DEFAULT_CALENDAR_ID,
+  eventId: string
+): Promise<NormalizedCalendarEvent> {
+  const client = await getCalendarClient(userId);
+  const response = await client.events.get({ calendarId, eventId });
+  if (!response.data) {
+    throw new Error('Event not found.');
+  }
+  return normalizeCalendarEvent(response.data);
+}
+
 export async function createCalendarEvent(
   userId: string,
   input: CreateCalendarEventInput
@@ -115,6 +140,65 @@ export async function createCalendarEvent(
         displayName: attendee.optionalName,
       })),
     },
+  });
+
+  return normalizeCalendarEvent(response.data);
+}
+
+export async function updateCalendarEvent(
+  userId: string,
+  input: UpdateCalendarEventInput
+): Promise<NormalizedCalendarEvent> {
+  const calendarId = input.calendarId ?? DEFAULT_CALENDAR_ID;
+  const client = await getCalendarClient(userId);
+
+  const hasTimeUpdate = Boolean(input.startTime) || Boolean(input.endTime);
+  if (input.startTime && !input.endTime) {
+    throw new Error('endTime is required when updating startTime.');
+  }
+  if (!input.startTime && input.endTime) {
+    throw new Error('startTime is required when updating endTime.');
+  }
+
+  const hasFieldUpdate =
+    hasTimeUpdate ||
+    Boolean(input.summary) ||
+    Boolean(input.description) ||
+    Boolean(input.location) ||
+    Boolean(input.timeZone) ||
+    Boolean(input.attendees?.length);
+
+  if (!hasFieldUpdate) {
+    throw new Error('Provide at least one field to update.');
+  }
+
+  const timeZone = input.timeZone ?? DEFAULT_TIME_ZONE;
+  const requestBody: calendar_v3.Schema$Event = {
+    summary: input.summary,
+    description: input.description,
+    location: input.location,
+    ...(hasTimeUpdate
+      ? {
+          start: {
+            dateTime: input.startTime,
+            timeZone,
+          },
+          end: {
+            dateTime: input.endTime,
+            timeZone,
+          },
+        }
+      : {}),
+    attendees: input.attendees?.map((attendee) => ({
+      email: attendee.email,
+      displayName: attendee.optionalName,
+    })),
+  };
+
+  const response = await client.events.patch({
+    calendarId,
+    eventId: input.eventId,
+    requestBody,
   });
 
   return normalizeCalendarEvent(response.data);
