@@ -109,6 +109,7 @@ export async function POST(req: Request) {
     }));
 
     if (userExplicitlyRequestedImage(messages)) {
+      console.log('[chat-api] Image request detected, injecting tool nudge');
       coreMessages = [
         {
           role: 'system',
@@ -201,7 +202,11 @@ function userExplicitlyRequestedImage(messages: any[]): boolean {
   }
 
   const explicitToolMention = /gpt[- ]?image|grok|getimg|image tool/i.test(text);
-  return IMAGE_REQUEST_REGEX.test(text) || explicitToolMention;
+  const matched = IMAGE_REQUEST_REGEX.test(text) || explicitToolMention;
+  if (matched) {
+    console.log('[chat-api] Matched image keywords in user message', { text });
+  }
+  return matched;
 }
 
 function getPlainTextFromMessage(message: any): string {

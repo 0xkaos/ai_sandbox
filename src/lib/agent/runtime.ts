@@ -222,6 +222,7 @@ function buildAgentResponseText(text: string, toolInvocations: AgentToolInvocati
   }
 
   if (!toolInvocations || toolInvocations.length === 0) {
+    console.warn('[agent-runtime] No final text or tool invocations returned; using generic completion message.');
     return 'Completed the requested action.';
   }
 
@@ -243,7 +244,9 @@ function buildAgentResponseText(text: string, toolInvocations: AgentToolInvocati
     return `${name} completed successfully.`;
   });
 
-  return summaries.join('\n');
+  const synthesized = summaries.join('\n');
+  console.warn('[agent-runtime] Synthesized response from tool activity', synthesized);
+  return synthesized;
 }
 
 function createAgentLanguageModel(providerId: ProviderId, modelId: string) {
