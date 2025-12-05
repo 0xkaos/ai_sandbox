@@ -207,7 +207,9 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
             </div>
             {messages.map((m: UIMessage) => {
               const text = getMessageText(m);
-              if (m.role !== 'user' && !text.trim()) {
+              const toolInvocations = (m as any).toolInvocations;
+              const hasImageOutputs = hasImageResult(toolInvocations);
+              if (m.role !== 'user' && !text.trim() && !hasImageOutputs) {
                 return null;
               }
 
@@ -230,7 +232,7 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                     ) : (
                       <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:underline">
                         <ReactMarkdown remarkPlugins={markdownPlugins}>{text}</ReactMarkdown>
-                        <ImageToolOutputs rawInvocations={(m as any).toolInvocations} />
+                        <ImageToolOutputs rawInvocations={toolInvocations} />
                       </div>
                     )}
                   </div>
@@ -357,6 +359,10 @@ function extractImageResults(rawInvocations: unknown): ImageGenerationResult[] {
   });
 
   return results;
+}
+
+function hasImageResult(rawInvocations: unknown) {
+  return extractImageResults(rawInvocations).length > 0;
 }
 
 function normalizeToolInvocations(raw: unknown): ToolInvocationLike[] {

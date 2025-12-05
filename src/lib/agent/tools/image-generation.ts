@@ -39,26 +39,27 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
   }
 
   protected async _call(input: z.infer<typeof openaiImageSchema>): Promise<string> {
-    console.log('[image-tool][openai] generating image', {
-      promptPreview: input.prompt.slice(0, 80),
+    const requestBody = {
+      model: OPENAI_IMAGE_MODEL,
+      prompt: input.prompt,
+      n: input.count ?? 1,
       size: input.size ?? '1024x1024',
       quality: input.quality ?? 'standard',
-      count: input.count ?? 1,
+    } as const;
+
+    console.log('[image-tool][openai] generating image', {
+      promptPreview: input.prompt.slice(0, 80),
+      payloadKeys: Object.keys(requestBody),
+      requestBody,
     });
+
     const response = await fetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({
-        model: OPENAI_IMAGE_MODEL,
-        prompt: input.prompt,
-        n: input.count ?? 1,
-        size: input.size ?? '1024x1024',
-        quality: input.quality ?? 'standard',
-        response_format: 'b64_json',
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const payload = await response.json();
@@ -71,7 +72,11 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
     const images = Array.isArray(payload?.data)
       ? payload.data.map((item: any, index: number) => ({
           index,
-          dataUrl: item?.b64_json ? dataUrlFromBase64(item.b64_json) : item?.url ?? null,
+          dataUrl: item?.b64_json
+            ? dataUrlFromBase64(item.b64_json)
+            : typeof item?.url === 'string'
+              ? item.url
+              : null,
           revisedPrompt: item?.revised_prompt ?? null,
         }))
       : [];
