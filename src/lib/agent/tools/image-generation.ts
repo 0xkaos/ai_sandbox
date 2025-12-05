@@ -11,7 +11,6 @@ const baseImageSchema = z.object({
 
 const openaiImageSchema = baseImageSchema.extend({
   size: z.enum(['256x256', '512x512', '1024x1024', '2048x2048']).optional(),
-  quality: z.enum(['low', 'medium', 'high', 'auto']).optional(),
 });
 
 const xaiImageSchema = baseImageSchema.extend({
@@ -31,7 +30,7 @@ const dataUrlFromBase64 = (value: string, mime = 'image/png') => `data:${mime};b
 
 class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
   name = 'openai_generate_image';
-  description = 'Generate images with OpenAI gpt-image-1. Provide a detailed prompt and optional size/quality.';
+  description = 'Generate images with OpenAI gpt-image-1. Provide a detailed prompt and optional size.';
   schema = openaiImageSchema;
 
   constructor(private readonly apiKey: string) {
@@ -44,8 +43,7 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
       prompt: input.prompt,
       n: input.count ?? 1,
       size: input.size ?? '1024x1024',
-      quality: input.quality ?? 'auto',
-    } as const;
+    };
 
     console.log('[image-tool][openai] generating image', {
       promptPreview: input.prompt.slice(0, 80),

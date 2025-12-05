@@ -4,8 +4,8 @@ import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
 import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/agent/runtime';
 
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30;
+// Allow streaming responses up to 60 seconds
+export const maxDuration = 60;
 
 const IMAGE_REQUEST_REGEX = /(generate|create|make|draw|render|paint|sketch|design)\s+(an?\s+)?(image|picture|art|illustration|concept|logo|poster)/i;
 const IMAGE_TOOL_NUDGE = `The user explicitly requested an image. Select and invoke the best available image generation tool (OpenAI gpt-image-1, xAI Grok-2 Image, or Getimg Seedream v4) instead of replying with text. If their prompt lacks detail, elaborate on their concept with creative descriptors before calling the tool. If they provided detailed instructions, follow them exactly.`;
