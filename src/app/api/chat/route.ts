@@ -320,12 +320,23 @@ function buildAiStreamResponse(message: {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const messagePayload = {
-        type: 'message',
+      const baseMessage = {
         id: message.id,
         role: message.role,
         content: [{ type: 'text', text: message.content }],
         toolInvocations: message.toolInvocations,
+      };
+
+      // Shape 1: matches ai-sdk message event (nested under message)
+      const nestedPayload = {
+        type: 'message',
+        message: baseMessage,
+      };
+
+      // Shape 2: flat payload with type
+      const flatPayload = {
+        type: 'message',
+        ...baseMessage,
       };
 
       const textPayload = {
@@ -333,8 +344,9 @@ function buildAiStreamResponse(message: {
         text: message.content,
       };
 
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(messagePayload)}\n\n`));
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(textPayload)}\n\n`));
+      controller.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(nestedPayload)}\n\n`));
+      controller.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(flatPayload)}\n\n`));
+      controller.enqueue(encoder.encode(`event: text\ndata: ${JSON.stringify(textPayload)}\n\n`));
       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller.close();
     },
