@@ -1,4 +1,4 @@
-import { streamText, convertToCoreMessages, DataStreamEncoder } from 'ai';
+import { streamText, convertToCoreMessages } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
@@ -190,8 +190,6 @@ export async function POST(req: Request) {
 
         await saveMessage(chatId, assistantMessage);
 
-        // Use AI SDK DataStreamEncoder to emit message + text events in the expected format
-        const encoder = new DataStreamEncoder();
         const messagePayload = {
           id: assistantMessage.id,
           role: assistantMessage.role,
@@ -203,9 +201,7 @@ export async function POST(req: Request) {
 
         console.log('[chat-api][agent-sse-debug]', sanitizeForLog({ messagePayload, textPayload }));
 
-        encoder.writeMessage(messagePayload);
-        encoder.writeText(textPayload);
-        return encoder.toDataStreamResponse();
+        return buildAgentDataStreamResponse({ messagePayload, textPayload });
       } catch (agentError) {
         console.error('[chat-api] Agent runtime failed, falling back to direct model', agentError);
       }
@@ -354,6 +350,43 @@ function sanitizeForLog<T>(value: T): T {
   };
 
   return replacer('', value) as T;
+}
+
+function buildAgentDataStreamResponse(params: {
+  messagePayload: {
+    id: string;
+    role: string;
+    content: Array<{ type: 'text'; text: string }>;
+    toolInvocations?: any;
+  };
+  textPayload: string;
+}) {
+  const { messagePayload, textPayload } = params;
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const frames = [
+        { type: 'message', message: messagePayload },
+        { type: 'text', text: textPayload },
+        { type: 'done' },
+      ];
+
+      for (const frame of frames) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+      }
+
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
 
 
