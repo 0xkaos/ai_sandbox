@@ -53,20 +53,13 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
     messages: initialMessages,
     transport,
     onFinish: () => {
-      // If we're on the home page (no ID prop), navigate to the chat page
       if (!id) {
         window.history.replaceState({}, '', `/chat/${activeChatId}`);
         syncFromChat({ chatId: activeChatId });
       }
-
-      // Force a refresh to pick up any server-persisted message/tool data
-      // in case the client-side stream parsing missed it.
-      router.refresh();
+      // Do not router.refresh() here; let streaming state stay in the client
     },
   });
-
-  // Temporary debug to inspect streaming messages shape
-  console.log('[chat-ui] messages', messages);
 
   useEffect(() => {
     if (id) {
