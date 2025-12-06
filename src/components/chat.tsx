@@ -65,6 +65,9 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
     },
   });
 
+  // Temporary debug to inspect streaming messages shape
+  console.log('[chat-ui] messages', messages);
+
   useEffect(() => {
     if (id) {
       syncFromChat({
