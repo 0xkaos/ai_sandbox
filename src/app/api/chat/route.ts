@@ -104,6 +104,10 @@ export async function POST(req: Request) {
     // Helper to sanitize tool invocations (remove large base64 data)
     const sanitizeToolInvocations = (invocations: any[]) => {
       if (!Array.isArray(invocations)) return undefined;
+      console.log('[chat-api] sanitizeToolInvocations input', {
+        length: invocations?.length,
+        sample: sanitizeForLog(invocations?.[0]),
+      });
       return invocations.map((inv) => {
         if (!inv.result || typeof inv.result !== 'object') return inv;
         // Clone result to avoid mutating original
@@ -121,7 +125,12 @@ export async function POST(req: Request) {
     // Helper to sanitize tool content (remove large base64 data from tool results)
     const sanitizeContent = (content: Array<{ type: 'text'; text: string }> | undefined, role: string): Array<{ type: 'text'; text: string }> => {
       if (!Array.isArray(content) || role !== 'tool') return content ?? [];
-      
+
+      console.log('[chat-api] sanitizeContent input', {
+        length: content?.length,
+        sample: sanitizeForLog(content?.[0]),
+      });
+
       return content.map(part => {
         if (part.type === 'text' && (part.text.includes('data:image') || part.text.includes('"images"'))) {
           try {
