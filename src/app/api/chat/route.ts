@@ -197,11 +197,9 @@ export async function POST(req: Request) {
           toolInvocations: agentResult.toolInvocations,
         };
 
-        const textPayload = agentResult.finalText ?? '';
+        console.log('[chat-api][agent-sse-debug]', sanitizeForLog({ messagePayload }));
 
-        console.log('[chat-api][agent-sse-debug]', sanitizeForLog({ messagePayload, textPayload }));
-
-        return buildAgentDataStreamResponse({ messagePayload, textPayload });
+        return buildAgentDataStreamResponse({ messagePayload });
       } catch (agentError) {
         console.error('[chat-api] Agent runtime failed, falling back to direct model', agentError);
       }
@@ -359,18 +357,13 @@ function buildAgentDataStreamResponse(params: {
     content: Array<{ type: 'text'; text: string }>;
     toolInvocations?: any;
   };
-  textPayload: string;
 }) {
-  const { messagePayload, textPayload } = params;
+  const { messagePayload } = params;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const frames = [
-        { type: 'message', message: messagePayload },
-        { type: 'text', text: textPayload },
-        { type: 'done' },
-      ];
+      const frames = [{ type: 'message', message: messagePayload }, { type: 'done' }];
 
       for (const frame of frames) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
