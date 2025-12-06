@@ -154,7 +154,9 @@ export async function POST(req: Request) {
       });
     };
 
-    let coreMessages = messages.map((m: any) => {
+    const safeMessages = Array.isArray(messages) ? messages : [];
+
+    let coreMessages = safeMessages.map((m: any) => {
       const normalizedContent = normalizeToTextParts(m.parts ?? m.content);
       const sanitizedContent = sanitizeContent(normalizedContent, m.role);
       
