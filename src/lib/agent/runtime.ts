@@ -362,6 +362,9 @@ function createAgentLanguageModel(providerId: ProviderId, modelId: string) {
 function normalizeOpenAiAgentModel(modelId: string) {
   const fallback = process.env.AGENT_OPENAI_MODEL || 'gpt-4o';
   const allowedChatModels = new Set([
+    'gpt-5.1',
+    'gpt-5.1-mini',
+    'gpt-5',
     'gpt-4o',
     'gpt-4o-mini',
     'gpt-4.1',
