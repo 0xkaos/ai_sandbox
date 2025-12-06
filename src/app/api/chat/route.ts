@@ -365,6 +365,8 @@ function buildAgentDataStreamResponse(params: {
     start(controller) {
       const frames = [{ type: 'message', message: messagePayload }, { type: 'done' }];
 
+      console.log('[chat-api][agent-sse-frames]', sanitizeForLog(frames));
+
       for (const frame of frames) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
       }
