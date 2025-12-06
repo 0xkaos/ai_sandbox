@@ -322,12 +322,10 @@ function buildAiStreamResponse(message: {
     start(controller) {
       const messagePayload = {
         type: 'message',
-        message: {
-          id: message.id,
-          role: message.role,
-          content: [{ type: 'text', text: message.content }],
-          toolInvocations: message.toolInvocations,
-        },
+        id: message.id,
+        role: message.role,
+        content: [{ type: 'text', text: message.content }],
+        toolInvocations: message.toolInvocations,
       };
 
       const textPayload = {
