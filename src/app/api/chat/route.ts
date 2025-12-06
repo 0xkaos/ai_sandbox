@@ -2,7 +2,6 @@ import { streamText, convertToCoreMessages } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
-import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/agent/runtime';
 
 // Allow streaming responses up to 300 seconds (5 minutes)
 export const maxDuration = 300;
@@ -146,7 +145,7 @@ export async function POST(req: Request) {
       });
     };
 
-    let coreMessages: CoreChatMessage[] = messages.map((m: any) => {
+    let coreMessages = messages.map((m: any) => {
       const normalizedContent = normalizeToTextParts(m.parts ?? m.content);
       const sanitizedContent = sanitizeContent(normalizedContent, m.role);
       
@@ -169,41 +168,6 @@ export async function POST(req: Request) {
     }
 
     const trimmedCoreMessages = trimCoreMessages(coreMessages, 40);
-
-    if (isAgentEligible(providerId)) {
-      try {
-        console.log('[chat-api] Routing request to agent runtime');
-        const agentResult = await runAgentWithTools({
-          userId,
-          providerId,
-          modelId,
-          messages: trimmedCoreMessages as CoreChatMessage[],
-        });
-
-        const assistantMessage = {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: agentResult.finalText,
-          toolInvocations: agentResult.toolInvocations,
-          createdAt: new Date(),
-        } as const;
-
-        await saveMessage(chatId, assistantMessage);
-
-        const messagePayload = {
-          id: assistantMessage.id,
-          role: assistantMessage.role,
-          content: [{ type: 'text' as const, text: agentResult.finalText }],
-          toolInvocations: agentResult.toolInvocations,
-        };
-
-        console.log('[chat-api][agent-sse-debug]', sanitizeForLog({ messagePayload }));
-
-        return buildAgentDataStreamResponse({ messagePayload });
-      } catch (agentError) {
-        console.error('[chat-api] Agent runtime failed, falling back to direct model', agentError);
-      }
-    }
 
     console.log('[chat-api] Streaming response', {
       totalMessages: coreMessages.length,
@@ -301,7 +265,7 @@ function normalizeToTextParts(value: any): Array<{ type: 'text'; text: string }>
   return [{ type: 'text', text: '' }];
 }
 
-function trimCoreMessages(messages: CoreChatMessage[], limit = 40) {
+function trimCoreMessages(messages: any[], limit = 40) {
   if (messages.length <= limit) {
     return messages;
   }
@@ -350,38 +314,8 @@ function sanitizeForLog<T>(value: T): T {
   return replacer('', value) as T;
 }
 
-function buildAgentDataStreamResponse(params: {
-  messagePayload: {
-    id: string;
-    role: string;
-    content: Array<{ type: 'text'; text: string }>;
-    toolInvocations?: any;
-  };
-}) {
-  const { messagePayload } = params;
-  const encoder = new TextEncoder();
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const frames = [{ type: 'message', message: messagePayload }, { type: 'done' }];
 
-      console.log('[chat-api][agent-sse-frames]', sanitizeForLog(frames));
 
-      for (const frame of frames) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
-      }
-
-      controller.close();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    },
-  });
-}
 
 

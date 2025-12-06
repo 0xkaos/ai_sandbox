@@ -17,81 +17,6 @@ import remarkGfm from 'remark-gfm';
 
 type TextLikePart = { type?: string; text?: string };
 
-const stripWrappingQuotes = (value: string) => {
-  const trimmed = value.trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-};
-
-const parseSsePayloadToText = (raw: string) => {
-  if (!raw || raw.indexOf('data:') === -1) {
-    return null;
-  }
-
-  const normalized = stripWrappingQuotes(raw).replace(/\\n/g, '\n');
-  const segments = normalized
-    .split('data:')
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  let buffer = '';
-
-  for (const segment of segments) {
-    if (!segment || segment === '[DONE]') {
-      continue;
-    }
-
-    const cleaned = segment.replace(/,$/, '');
-    if (!cleaned.startsWith('{') || !cleaned.endsWith('}')) {
-      continue;
-    }
-
-    try {
-      const payload = JSON.parse(cleaned);
-      if (payload?.type === 'text-delta' && typeof payload.delta === 'string') {
-        buffer += payload.delta;
-      } else if (payload?.type === 'text' && typeof payload.text === 'string') {
-        buffer += payload.text;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return buffer || null;
-};
-
-const decodeTextSnippet = (value?: string) => {
-  if (typeof value !== 'string') {
-    return '';
-  }
-
-  const decoded = parseSsePayloadToText(value);
-  if (decoded !== null) {
-    return decoded;
-  }
-
-  // Hide raw SSE payload text until we have actual decoded content
-  if (value.includes('data:')) {
-    return '';
-  }
-
-  return value;
-};
-
-const collapseTextParts = (parts?: TextLikePart[]) => {
-  if (!Array.isArray(parts)) {
-    return '';
-  }
-
-  return parts
-    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
-    .map((part) => decodeTextSnippet(part.text))
-    .join('');
-};
-
 interface ChatProps {
   id?: string;
   initialMessages?: UIMessage[];
@@ -183,15 +108,16 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
   const getMessageText = (message: UIMessage) => {
     const msg = message as any;
     if (typeof msg.content === 'string') {
-      return decodeTextSnippet(msg.content);
+      return msg.content;
     }
 
-    const fromContent = collapseTextParts(msg.content);
-    if (fromContent) {
-      return fromContent;
-    }
+    const parts = (Array.isArray(msg.content) ? msg.content : msg.parts) as TextLikePart[] | undefined;
+    if (!Array.isArray(parts)) return '';
 
-    return collapseTextParts(msg.parts);
+    return parts
+      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+      .map((part) => part.text as string)
+      .join('');
   };
 
   return (
