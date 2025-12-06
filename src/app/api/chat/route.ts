@@ -1,4 +1,4 @@
-import { streamText, convertToCoreMessages } from 'ai';
+import { streamText } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
@@ -98,98 +98,28 @@ export async function POST(req: Request) {
       console.error('[chat-api] Error saving user message:', error);
     }
 
-    // Convert to core messages for the AI SDK
     console.log('[chat-api] Normalizing messages for model');
-
-    // Helper to sanitize tool invocations (remove large base64 data)
-    const sanitizeToolInvocations = (invocations: any[]) => {
-      if (!Array.isArray(invocations)) return undefined;
-      console.log('[chat-api] sanitizeToolInvocations input', {
-        length: invocations?.length,
-        sample: sanitizeForLog(invocations?.[0]),
-      });
-      return invocations.map((inv) => {
-        if (!inv.result || typeof inv.result !== 'object') return inv;
-        // Clone result to avoid mutating original
-        const result = { ...inv.result };
-        if (Array.isArray(result.images)) {
-          result.images = result.images.map((img: any) => ({
-            ...img,
-            dataUrl: img.dataUrl?.startsWith('data:') ? '<base64_data_truncated>' : img.dataUrl
-          }));
-        }
-        return { ...inv, result };
-      });
-    };
-
-    // Helper to sanitize tool content (remove large base64 data from tool results)
-    const sanitizeContent = (content: Array<{ type: 'text'; text: string }> | undefined, role: string): Array<{ type: 'text'; text: string }> => {
-      if (!Array.isArray(content) || role !== 'tool') return content ?? [];
-
-      console.log('[chat-api] sanitizeContent input', {
-        length: content?.length,
-        sample: sanitizeForLog(content?.[0]),
-      });
-
-      return content.map(part => {
-        if (part.type === 'text' && (part.text.includes('data:image') || part.text.includes('"images"'))) {
-          try {
-            // Attempt to parse JSON and sanitize images
-            const parsed = JSON.parse(part.text);
-            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.images)) {
-              parsed.images = parsed.images.map((img: any) => ({
-                ...img,
-                dataUrl: img.dataUrl?.startsWith('data:') ? '<base64_data_truncated>' : img.dataUrl
-              }));
-              return { type: 'text' as const, text: JSON.stringify(parsed) };
-            }
-          } catch (e) {
-            // Not JSON or failed to parse, return original (or maybe truncate if too long?)
-            if (part.text.length > 10000) {
-               return { type: 'text' as const, text: part.text.substring(0, 1000) + '... <truncated_large_content>' };
-            }
-          }
-        }
-        return part;
-      });
-    };
 
     const safeMessages = Array.isArray(messages) ? messages : [];
 
-    let coreMessages = safeMessages.map((m: any) => {
-      const normalizedContent = normalizeToTextParts(m.parts ?? m.content);
-      const sanitizedContent = sanitizeContent(normalizedContent, m.role);
-      
-      return {
-        role: m.role,
-        content: sanitizedContent,
-        ...(m.toolInvocations ? { toolInvocations: sanitizeToolInvocations(m.toolInvocations) } : {}),
-      };
-    });
-
-    if (userExplicitlyRequestedImage(messages)) {
+    if (userExplicitlyRequestedImage(safeMessages)) {
       console.log('[chat-api] Image request detected, injecting tool nudge');
-      coreMessages = [
-        {
-          role: 'system',
-          content: [{ type: 'text', text: IMAGE_TOOL_NUDGE }],
-        },
-        ...coreMessages,
-      ];
+      safeMessages.unshift({
+        role: 'system',
+        content: IMAGE_TOOL_NUDGE,
+      });
     }
 
-    const trimmedCoreMessages = trimCoreMessages(coreMessages, 40);
-
     console.log('[chat-api] Streaming response', {
-      totalMessages: coreMessages.length,
-      lastRole: coreMessages[coreMessages.length - 1]?.role,
+      totalMessages: safeMessages.length,
+      lastRole: safeMessages[safeMessages.length - 1]?.role,
       providerId,
       modelId,
     });
 
     const result = streamText({
       model: modelHandle,
-      messages: convertToCoreMessages(trimmedCoreMessages as any),
+      messages: safeMessages as any,
       onFinish: async ({ text, toolCalls }) => {
         console.log('[chat-api] Stream finished, saving assistant response');
         try {
@@ -237,7 +167,9 @@ function userExplicitlyRequestedImage(messages: any[]): boolean {
     return false;
   }
 
-  const text = getPlainTextFromMessage(lastUserMessage);
+  const text = String(lastUserMessage.content ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text) {
     return false;
   }
@@ -248,59 +180,6 @@ function userExplicitlyRequestedImage(messages: any[]): boolean {
     console.log('[chat-api] Matched image keywords in user message', { text });
   }
   return matched;
-}
-
-function getPlainTextFromMessage(message: any): string {
-  const parts = normalizeToTextParts(message?.parts ?? message?.content ?? '');
-  return parts.map((part) => part.text).join(' ').trim();
-}
-
-function normalizeToTextParts(value: any): Array<{ type: 'text'; text: string }> {
-  if (typeof value === 'string' && value.length > 0) {
-    return [{ type: 'text', text: value }];
-  }
-
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((part) => {
-        if (!part) return null;
-        if (typeof part === 'string') {
-          return { type: 'text', text: part };
-        }
-        if (part.type === 'text' && typeof part.text === 'string') {
-          return { type: 'text', text: part.text };
-        }
-        if (typeof part.text === 'string') {
-          return { type: 'text', text: part.text };
-        }
-        return null;
-      })
-      .filter(Boolean) as Array<{ type: 'text'; text: string }>;
-
-    if (parts.length > 0) {
-      return parts;
-    }
-  }
-
-  return [{ type: 'text', text: '' }];
-}
-
-function trimCoreMessages(messages: any[], limit = 40) {
-  if (messages.length <= limit) {
-    return messages;
-  }
-
-  const keepIndexes = new Set<number>();
-  const firstSystemIndex = messages.findIndex((message) => message.role === 'system');
-  if (firstSystemIndex !== -1) {
-    keepIndexes.add(firstSystemIndex);
-  }
-
-  const remainingSlots = Math.max(limit - keepIndexes.size, 0);
-  const tailIndexes = messages.map((_, index) => index).slice(-remainingSlots);
-  tailIndexes.forEach((index) => keepIndexes.add(index));
-
-  return messages.filter((_, index) => keepIndexes.has(index));
 }
 
 function sanitizeForLog<T>(value: T): T {
