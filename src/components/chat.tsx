@@ -52,13 +52,6 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
     id: activeChatId,
     messages: initialMessages,
     transport,
-    onFinish: () => {
-      if (!id) {
-        window.history.replaceState({}, '', `/chat/${activeChatId}`);
-        syncFromChat({ chatId: activeChatId });
-      }
-      // Do not router.refresh() here; let streaming state stay in the client
-    },
   });
 
   useEffect(() => {

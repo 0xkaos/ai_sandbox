@@ -98,17 +98,9 @@ export async function POST(req: Request) {
       console.error('[chat-api] Error saving user message:', error);
     }
 
-    console.log('[chat-api] Normalizing messages for model');
+    console.log('[chat-api] Preparing messages for model');
 
     const safeMessages = Array.isArray(messages) ? messages : [];
-
-    if (userExplicitlyRequestedImage(safeMessages)) {
-      console.log('[chat-api] Image request detected, injecting tool nudge');
-      safeMessages.unshift({
-        role: 'system',
-        content: IMAGE_TOOL_NUDGE,
-      });
-    }
 
     console.log('[chat-api] Streaming response', {
       totalMessages: safeMessages.length,
