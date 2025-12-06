@@ -1,4 +1,4 @@
-import { streamText, convertToCoreMessages } from 'ai';
+import { streamText, convertToCoreMessages, DataStreamEncoder } from 'ai';
 import { auth } from '@/lib/auth';
 import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
@@ -190,8 +190,22 @@ export async function POST(req: Request) {
 
         await saveMessage(chatId, assistantMessage);
 
-        // Send AI SDK-compatible SSE so the client can render tool outputs immediately
-        return buildAiStreamResponse(assistantMessage);
+        // Use AI SDK DataStreamEncoder to emit message + text events in the expected format
+        const encoder = new DataStreamEncoder();
+        const messagePayload = {
+          id: assistantMessage.id,
+          role: assistantMessage.role,
+          content: [{ type: 'text', text: agentResult.finalText }],
+          toolInvocations: agentResult.toolInvocations,
+        };
+
+        const textPayload = agentResult.finalText ?? '';
+
+        console.log('[chat-api][agent-sse-debug]', sanitizeForLog({ messagePayload, textPayload }));
+
+        encoder.writeMessage(messagePayload);
+        encoder.writeText(textPayload);
+        return encoder.toDataStreamResponse();
       } catch (agentError) {
         console.error('[chat-api] Agent runtime failed, falling back to direct model', agentError);
       }
@@ -311,53 +325,35 @@ function trimCoreMessages(messages: CoreChatMessage[], limit = 40) {
   return messages.filter((_, index) => keepIndexes.has(index));
 }
 
-function buildAiStreamResponse(message: {
-  id: string;
-  role: string;
-  content: string;
-  toolInvocations?: any;
-}) {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const baseMessage = {
-        id: message.id,
-        role: message.role,
-        content: [{ type: 'text', text: message.content }],
-        toolInvocations: message.toolInvocations,
-      };
+function sanitizeForLog<T>(value: T): T {
+  const seen = new WeakSet();
 
-      // Shape 1: matches ai-sdk message event (nested under message)
-      const nestedPayload = {
-        type: 'message',
-        message: baseMessage,
-      };
+  const replacer = (_key: string, val: any) => {
+    if (val && typeof val === 'object') {
+      if (seen.has(val)) return '[circular]';
+      seen.add(val);
+    }
 
-      // Shape 2: flat payload with type
-      const flatPayload = {
-        type: 'message',
-        ...baseMessage,
-      };
+    if (Array.isArray(val)) {
+      return val.map((item) => replacer('', item));
+    }
 
-      const textPayload = {
-        type: 'text',
-        text: message.content,
-      };
+    if (val && typeof val === 'object') {
+      const cloned: Record<string, any> = {};
+      for (const [k, v] of Object.entries(val)) {
+        if (k === 'dataUrl' || k === 'b64_json' || k === 'image') {
+          cloned[k] = '[truncated]';
+          continue;
+        }
+        cloned[k] = replacer(k, v);
+      }
+      return cloned;
+    }
 
-      controller.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(nestedPayload)}\n\n`));
-      controller.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(flatPayload)}\n\n`));
-      controller.enqueue(encoder.encode(`event: text\ndata: ${JSON.stringify(textPayload)}\n\n`));
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-      controller.close();
-    },
-  });
+    return val;
+  };
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    },
-  });
+  return replacer('', value) as T;
 }
+
 
