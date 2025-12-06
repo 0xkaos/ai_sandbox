@@ -191,12 +191,21 @@ export async function POST(req: Request) {
       onFinish: async ({ text, toolCalls }) => {
         console.log('[chat-api] Stream finished, saving assistant response');
         try {
-          // Save assistant's response
+          let safeToolInvocations: any = undefined;
+          if (Array.isArray(toolCalls)) {
+            try {
+              safeToolInvocations = toolCalls.map((call) => sanitizeForLog(call));
+            } catch (toolError) {
+              console.error('[chat-api] Error sanitizing toolCalls, ignoring tool invocations', toolError);
+              safeToolInvocations = undefined;
+            }
+          }
+
           await saveMessage(chatId, {
             id: crypto.randomUUID(),
             role: 'assistant',
             content: text,
-            toolInvocations: toolCalls as any,
+            toolInvocations: safeToolInvocations,
             createdAt: new Date(),
           });
         } catch (e) {
