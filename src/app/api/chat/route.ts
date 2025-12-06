@@ -193,7 +193,7 @@ export async function POST(req: Request) {
         const messagePayload = {
           id: assistantMessage.id,
           role: assistantMessage.role,
-          content: [{ type: 'text', text: agentResult.finalText }],
+          content: [{ type: 'text' as const, text: agentResult.finalText }],
           toolInvocations: agentResult.toolInvocations,
         };
 
@@ -324,7 +324,7 @@ function trimCoreMessages(messages: CoreChatMessage[], limit = 40) {
 function sanitizeForLog<T>(value: T): T {
   const seen = new WeakSet();
 
-  const replacer = (_key: string, val: any) => {
+  const replacer = (_key: string, val: any): any => {
     if (val && typeof val === 'object') {
       if (seen.has(val)) return '[circular]';
       seen.add(val);
