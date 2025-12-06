@@ -132,8 +132,11 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
       if (!id) {
         window.history.replaceState({}, '', `/chat/${activeChatId}`);
         syncFromChat({ chatId: activeChatId });
-        router.refresh(); // Refresh to update sidebar
       }
+
+      // Force a refresh to pick up any server-persisted message/tool data
+      // in case the client-side stream parsing missed it.
+      router.refresh();
     },
   });
 
