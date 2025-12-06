@@ -119,8 +119,8 @@ export async function POST(req: Request) {
     };
 
     // Helper to sanitize tool content (remove large base64 data from tool results)
-    const sanitizeContent = (content: Array<{ type: 'text'; text: string }>, role: string): Array<{ type: 'text'; text: string }> => {
-      if (role !== 'tool') return content;
+    const sanitizeContent = (content: Array<{ type: 'text'; text: string }> | undefined, role: string): Array<{ type: 'text'; text: string }> => {
+      if (!Array.isArray(content) || role !== 'tool') return content ?? [];
       
       return content.map(part => {
         if (part.type === 'text' && (part.text.includes('data:image') || part.text.includes('"images"'))) {
