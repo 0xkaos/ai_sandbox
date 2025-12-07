@@ -12,7 +12,7 @@ import { buildAgentTools } from '@/lib/agent/tools';
 const textEncoder = new TextEncoder();
 const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
 const DEFAULT_AGENT_TIMEZONE = 'America/New_York';
-const AGENT_INVOKE_TIMEOUT_MS = 45000;
+const AGENT_INVOKE_TIMEOUT_MS = 25000;
 const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar, generate images, and generate short videos from text.
 If the user asks for calendar information, prefer using the calendar tools instead of guessing and summarize any changes you make.

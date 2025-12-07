@@ -11,7 +11,13 @@ const videoInputSchema = z.object({
     .string()
     .min(PROMPT_MIN_LEN, `Prompt must include enough detail (at least ${PROMPT_MIN_LEN} characters).`)
     .describe('Text prompt describing the video content.'),
-  duration: z.number().int().min(1).max(12).default(10).describe('Video duration in seconds.'),
+  duration: z
+    .number()
+    .int()
+    .min(1)
+    .max(8)
+    .default(6)
+    .describe('Video duration in seconds (capped for latency).'),
   size: z
     .enum(['1280*720', '720*1280', '1024*1024'])
     .default('1280*720')
