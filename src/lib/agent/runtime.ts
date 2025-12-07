@@ -12,7 +12,8 @@ import { buildAgentTools } from '@/lib/agent/tools';
 const textEncoder = new TextEncoder();
 const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
 const DEFAULT_AGENT_TIMEZONE = 'America/New_York';
-const AGENT_INVOKE_TIMEOUT_MS = 25000;
+// Allow slower tools (e.g., video generation) by extending timeout; override with AGENT_INVOKE_TIMEOUT_MS env.
+const AGENT_INVOKE_TIMEOUT_MS = Number(process.env.AGENT_INVOKE_TIMEOUT_MS ?? 60000);
 const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 const HTTP_VIDEO_REGEX = /https?:[^\s"']+\.(?:mp4|webm|mov|mkv|m4v)/i;
 const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar, generate images, and generate short videos from text.
