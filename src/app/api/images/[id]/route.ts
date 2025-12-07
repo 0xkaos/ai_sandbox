@@ -8,7 +8,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  return new NextResponse(entry.data, {
+  const body = new Uint8Array(entry.data);
+
+  return new NextResponse(body, {
     status: 200,
     headers: {
       'Content-Type': entry.contentType,
