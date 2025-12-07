@@ -7,7 +7,6 @@ import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { UIMessage } from '@ai-sdk/react';
-import { useRouter } from 'next/navigation';
 import { useChatSettings } from '@/components/chat-settings-provider';
 import type { ProviderId } from '@/lib/providers';
 import { getModelMetadata } from '@/lib/providers';
@@ -25,6 +24,7 @@ type AgentEvent = {
   type: 'tool-start' | 'tool-result' | 'final';
   name?: string | null;
   images?: string[];
+  videos?: string[];
   text?: string | null;
   args?: Record<string, unknown>;
   error?: string | null;
@@ -42,6 +42,7 @@ const stripWrappingQuotes = (value: string) => {
 
 const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 const HTTP_IMAGE_REGEX = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif))/gi;
+const HTTP_VIDEO_REGEX = /(https?:\/\/\S+\.(?:mp4|webm|mov|m4v|mkv))/gi;
 
 const parseSsePayloadToText = (raw: string) => {
   if (!raw || raw.indexOf('data:') === -1) {
@@ -182,6 +183,65 @@ const extractImagesFromToolInvocations = (toolInvocations: unknown): string[] =>
   return images;
 };
 
+const extractVideosFromText = (value: string) => {
+  const videos: string[] = [];
+  for (const match of value.matchAll(HTTP_VIDEO_REGEX)) {
+    videos.push(match[0]);
+  }
+  return videos;
+};
+
+const extractVideosFromToolInvocations = (toolInvocations: unknown): string[] => {
+  if (!Array.isArray(toolInvocations)) return [];
+
+  const videos: string[] = [];
+
+  for (const invocation of toolInvocations as ToolInvocation[]) {
+    const result = invocation?.result;
+    if (!result) continue;
+
+    let payload: any = result;
+    if (typeof result === 'string') {
+      try {
+        payload = JSON.parse(result);
+      } catch {
+        if (typeof result === 'string' && result.startsWith('http')) {
+          videos.push(result);
+        }
+        continue;
+      }
+    }
+
+    if (Array.isArray(payload?.videos)) {
+      for (const vid of payload.videos) {
+        if (typeof vid === 'string' && vid.startsWith('http')) {
+          videos.push(vid);
+        }
+        if (vid && typeof vid === 'object' && typeof vid.url === 'string') {
+          videos.push(vid.url);
+        }
+        if (vid && typeof vid === 'object' && typeof (vid as any).videoUrl === 'string') {
+          videos.push((vid as any).videoUrl);
+        }
+      }
+    }
+
+    if (payload && typeof payload === 'object') {
+      if (typeof (payload as any).videoUrl === 'string') {
+        videos.push((payload as any).videoUrl);
+      }
+      if (typeof (payload as any).video === 'string') {
+        videos.push((payload as any).video);
+      }
+      if (typeof (payload as any).url === 'string' && (payload as any).url.startsWith('http') && HTTP_VIDEO_REGEX.test((payload as any).url)) {
+        videos.push((payload as any).url);
+      }
+    }
+  }
+
+  return videos;
+};
+
 const normalizeMessage = (message: UIMessage) => {
   const msg = message as any;
 
@@ -203,9 +263,19 @@ const normalizeMessage = (message: UIMessage) => {
     ...extractImagesFromText(text),
     ...extractImagesFromToolInvocations(msg.toolInvocations),
   ];
-  const textWithoutImages = images.length > 0 ? text.replace(DATA_URL_REGEX, '').replace(HTTP_IMAGE_REGEX, '').trim() : text;
+  const videos = [
+    ...extractVideosFromText(text),
+    ...extractVideosFromToolInvocations(msg.toolInvocations),
+  ];
+  const textWithoutMedia = images.length || videos.length
+    ? text
+        .replace(DATA_URL_REGEX, '')
+        .replace(HTTP_IMAGE_REGEX, '')
+        .replace(HTTP_VIDEO_REGEX, '')
+        .trim()
+    : text;
 
-  return { text: textWithoutImages, images };
+  return { text: textWithoutMedia, images, videos };
 };
 
 interface ChatProps {
@@ -216,11 +286,11 @@ interface ChatProps {
 }
 
 export function Chat({ id, initialMessages = [], initialProvider, initialModel }: ChatProps) {
-  const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
   const [ephemeralImages, setEphemeralImages] = useState<string[]>([]);
+  const [ephemeralVideos, setEphemeralVideos] = useState<string[]>([]);
   const { provider, model, syncFromChat } = useChatSettings();
   const modelMetadata = useMemo(() => getModelMetadata(provider, model), [model, provider]);
   const markdownPlugins = useMemo(() => [remarkGfm], []);
@@ -308,6 +378,14 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
             return Array.from(next);
           });
         }
+        if (data.type === 'tool-result' && Array.isArray(data.videos) && data.videos.length > 0) {
+          console.debug('[agent-events] tool-result videos', data.videos);
+          setEphemeralVideos((prev) => {
+            const next = new Set(prev);
+            data.videos?.forEach((vid) => next.add(vid));
+            return Array.from(next);
+          });
+        }
         setAgentEvents((prev) => [...prev.slice(-20), data]);
       } catch {
         // ignore parse errors
@@ -336,8 +414,8 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
               </div>
             </div>
             {messages.map((m: UIMessage) => {
-              const { text, images } = normalizeMessage(m);
-              if (m.role !== 'user' && !text.trim() && images.length === 0) {
+              const { text, images, videos } = normalizeMessage(m);
+              if (m.role !== 'user' && !text.trim() && images.length === 0 && videos.length === 0) {
                 return null;
               }
 
@@ -377,6 +455,18 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                         ))}
                       </div>
                     )}
+                    {videos.length > 0 && (
+                      <div className="mt-3 grid grid-cols-1 gap-3">
+                        {videos.map((src, idx) => (
+                          <video
+                            key={`${m.id}-vid-${idx}`}
+                            src={src}
+                            controls
+                            className="rounded-md border shadow-sm"
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -393,6 +483,23 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                         alt="Generated"
                         className="rounded-md border shadow-sm"
                         loading="lazy"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {ephemeralVideos.length > 0 && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-lg px-4 py-2 w-full">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Videos (pending save)</div>
+                  <div className="grid grid-cols-1 gap-3">
+                    {ephemeralVideos.map((src, idx) => (
+                      <video
+                        key={`ephemeral-vid-${idx}`}
+                        src={src}
+                        controls
+                        className="rounded-md border shadow-sm"
                       />
                     ))}
                   </div>

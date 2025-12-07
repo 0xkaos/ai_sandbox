@@ -14,6 +14,7 @@ const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
 const DEFAULT_AGENT_TIMEZONE = 'America/New_York';
 const AGENT_INVOKE_TIMEOUT_MS = 25000;
 const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
+const HTTP_VIDEO_REGEX = /https?:[^\s"']+\.(?:mp4|webm|mov|mkv|m4v)/i;
 const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar, generate images, and generate short videos from text.
 If the user asks for calendar information, prefer using the calendar tools instead of guessing and summarize any changes you make.
 If the user asks for images, use the best image generation tool available.
@@ -107,8 +108,13 @@ export async function runAgentWithTools(params: {
     emitAgentEvents(chatId, toolInvocations, finalText, durationMs, toolEventsFlag.value);
   }
 
-  const imageUrls = extractImageUrls(toolInvocations);
-  const displayText = imageUrls.length > 0 ? 'Generated image ready.' : finalText;
+  const media = extractMedia(toolInvocations);
+  const displayText =
+    media.videos.length > 0
+      ? 'Generated video ready.'
+      : media.images.length > 0
+      ? 'Generated image ready.'
+      : finalText;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -263,12 +269,13 @@ function emitAgentEvents(
 ) {
   // Emit aggregated tool-result only if no per-tool event was sent
   if (!toolEventsEmitted && toolInvocations.length) {
-    const images = extractImageUrls(toolInvocations);
+    const media = extractMedia(toolInvocations);
     emitAgentEvent(chatId, {
       type: 'tool-result',
       name: toolInvocations[toolInvocations.length - 1]?.name,
-      images,
-      text: images.length ? 'Image generated' : 'Tool completed',
+      images: media.images,
+      videos: media.videos,
+      text: media.videos.length ? 'Video generated' : media.images.length ? 'Image generated' : 'Tool completed',
       durationMs,
       ts: Date.now(),
     });
@@ -302,19 +309,25 @@ function instrumentToolsWithEvents(tools: StructuredToolInterface[], chatId: str
       try {
         const result = await originalInvoke(input, options);
         const durationMs = Date.now() - startTs;
-        const images = extractImageUrlsFromResult(result);
+        const media = extractMediaFromResult(result);
 
         emitAgentEvent(chatId, {
           type: 'tool-result',
           name: toolName,
-          text: images.length ? 'Image generated' : 'Tool completed',
-          images,
+          text: media.videos.length ? 'Video generated' : media.images.length ? 'Image generated' : 'Tool completed',
+          images: media.images,
+          videos: media.videos,
           durationMs,
           ts: Date.now(),
         });
 
-        if (images.length) {
-          console.log('[agent-events] tool-result images', { chatId, tool: toolName, count: images.length, images });
+        if (media.images.length || media.videos.length) {
+          console.log('[agent-events] tool-result media', {
+            chatId,
+            tool: toolName,
+            images: media.images,
+            videos: media.videos,
+          });
         }
 
         toolEventsFlag.value = true;
@@ -351,9 +364,9 @@ function coerceArgs(input: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
-function extractImageUrlsFromResult(result: unknown): string[] {
-  if (!result) return [];
-  return extractImageUrls([
+function extractMediaFromResult(result: unknown): { images: string[]; videos: string[] } {
+  if (!result) return { images: [], videos: [] };
+  return extractMedia([
     {
       toolCallId: null,
       name: null,
@@ -362,21 +375,25 @@ function extractImageUrlsFromResult(result: unknown): string[] {
   ]);
 }
 
-function extractImageUrls(toolInvocations: AgentToolInvocationLog[]): string[] {
-  const urls: string[] = [];
+function extractMedia(toolInvocations: AgentToolInvocationLog[]): { images: string[]; videos: string[] } {
+  const images: string[] = [];
+  const videos: string[] = [];
+
   for (const invocation of toolInvocations) {
     const result = invocation.result;
     if (!result) continue;
 
     let payload: any = result;
+
     if (typeof result === 'string') {
       try {
         payload = JSON.parse(result);
       } catch {
-        const normalized = normalizeImageReference(result) || extractHttpImage(result);
-        if (normalized) {
-          urls.push(normalized);
-        }
+        const maybeImage = normalizeImageReference(result) || extractHttpImage(result);
+        if (maybeImage) images.push(maybeImage);
+
+        const maybeVideo = normalizeVideoReference(result) || extractHttpVideo(result);
+        if (maybeVideo) videos.push(maybeVideo);
         continue;
       }
     }
@@ -387,31 +404,65 @@ function extractImageUrls(toolInvocations: AgentToolInvocationLog[]): string[] {
           typeof img === 'string'
             ? img
             : typeof img === 'object'
-            ? (typeof img.dataUrl === 'string'
-                ? img.dataUrl
-                : typeof img.url === 'string'
-                ? img.url
+            ? (typeof (img as any).dataUrl === 'string'
+                ? (img as any).dataUrl
+                : typeof (img as any).url === 'string'
+                ? (img as any).url
                 : null)
             : null
         );
         if (normalized) {
-          urls.push(normalized);
+          images.push(normalized);
         }
       }
-    } else if (payload && typeof payload === 'object') {
-      const maybeUrl = typeof payload.url === 'string' ? payload.url : typeof payload.image === 'string' ? payload.image : null;
-      const normalized = normalizeImageReference(maybeUrl) || extractHttpImage(JSON.stringify(payload));
-      if (normalized) {
-        urls.push(normalized);
+    }
+
+    if (Array.isArray(payload?.videos)) {
+      for (const vid of payload.videos) {
+        const normalizedVid = normalizeVideoReference(
+          typeof vid === 'string'
+            ? vid
+            : typeof vid === 'object'
+            ? (typeof (vid as any).url === 'string'
+                ? (vid as any).url
+                : typeof (vid as any).videoUrl === 'string'
+                ? (vid as any).videoUrl
+                : null)
+            : null
+        );
+        if (normalizedVid) {
+          videos.push(normalizedVid);
+        }
+      }
+    }
+
+    if (payload && typeof payload === 'object') {
+      const maybeUrl = typeof (payload as any).url === 'string' ? (payload as any).url : typeof (payload as any).image === 'string' ? (payload as any).image : null;
+      const normalizedImage = normalizeImageReference(maybeUrl) || extractHttpImage(JSON.stringify(payload));
+      if (normalizedImage) {
+        images.push(normalizedImage);
+      }
+
+      const maybeVideo = typeof (payload as any).videoUrl === 'string' ? (payload as any).videoUrl : typeof (payload as any).video === 'string' ? (payload as any).video : null;
+      const normalizedVideo = normalizeVideoReference(maybeVideo) || extractHttpVideo(JSON.stringify(payload));
+      if (normalizedVideo) {
+        videos.push(normalizedVideo);
       }
     }
   }
-  return urls;
+
+  return { images, videos };
 }
 
 function extractHttpImage(text: string | null): string | null {
   if (!text) return null;
   const match = text.match(/https?:[^\s"']+\.(?:png|jpg|jpeg|gif|webp)/i);
+  return match ? match[0] : null;
+}
+
+function extractHttpVideo(text: string | null): string | null {
+  if (!text) return null;
+  const match = text.match(HTTP_VIDEO_REGEX);
   return match ? match[0] : null;
 }
 
@@ -423,6 +474,11 @@ function normalizeImageReference(value: string | null): string | null {
     return `/api/images/${id}`;
   }
   return value;
+}
+
+function normalizeVideoReference(value: string | null): string | null {
+  if (!value) return null;
+  return value.startsWith('http') ? value : null;
 }
 
 function sanitizeText(text: string) {

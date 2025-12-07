@@ -3,7 +3,16 @@ import { NextRequest } from 'next/server';
 
 type AgentEvent =
   | { type: 'tool-start'; name?: string | null; args?: Record<string, unknown> | null; ts?: number }
-  | { type: 'tool-result'; name?: string | null; images?: string[]; text?: string | null; error?: string | null; durationMs?: number; ts?: number }
+  | {
+      type: 'tool-result';
+      name?: string | null;
+      images?: string[];
+      videos?: string[];
+      text?: string | null;
+      error?: string | null;
+      durationMs?: number;
+      ts?: number;
+    }
   | { type: 'final'; text?: string | null; ts?: number };
 
 function getGlobalEmitter() {
