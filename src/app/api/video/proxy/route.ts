@@ -27,10 +27,14 @@ export async function GET(req: Request) {
       // Explicitly ask for binary video where possible
       Accept: 'video/mp4,video/webm,video/*;q=0.9,*/*;q=0.8',
     },
+    redirect: 'follow',
   });
 
-  if (!upstream.ok || !upstream.body) {
-    return NextResponse.json({ error: 'Upstream fetch failed' }, { status: 502 });
+  if (!upstream.body) {
+    return NextResponse.json(
+      { error: 'Upstream fetch failed', status: upstream.status, statusText: upstream.statusText },
+      { status: upstream.status || 502 }
+    );
   }
 
   const contentType = upstream.headers.get('content-type') || 'video/mp4';

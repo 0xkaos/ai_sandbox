@@ -47,7 +47,7 @@ const HTTP_VIDEO_REGEX = /(https?:\/\/\S+\.(?:mp4|webm|mov|m4v|mkv))/gi;
 const proxyVideoUrl = (url: string) => {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname.includes('replicate.')) {
+    if (parsed.hostname.includes('replicate.delivery')) {
       return `/api/video/proxy?url=${encodeURIComponent(url)}`;
     }
   } catch {

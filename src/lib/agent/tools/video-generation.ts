@@ -142,8 +142,16 @@ function resolveOutputUrl(output: unknown): string | null {
     }
   }
 
-  const withVideoExt = candidates.find((c) => /\.(mp4|webm|mov|mkv|m4v)(\?|$)/i.test(c));
-  if (withVideoExt) return withVideoExt;
+  const preferVideoExt = candidates.find((c) => /\.(mp4|webm|mov|mkv|m4v)(\?|$)/i.test(c));
+  if (preferVideoExt) {
+    // Prefer replicate.delivery hosts when available for direct file access
+    const delivery = candidates.find((c) => /replicate\.delivery/i.test(c) && /\.(mp4|webm|mov|mkv|m4v)(\?|$)/i.test(c));
+    return delivery ?? preferVideoExt;
+  }
+
+  const delivery = candidates.find((c) => /replicate\.delivery/i.test(c));
+  if (delivery) return delivery;
+
   return candidates[0] ?? null;
 }
 
