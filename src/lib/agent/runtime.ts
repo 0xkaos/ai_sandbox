@@ -14,9 +14,10 @@ const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
 const DEFAULT_AGENT_TIMEZONE = 'America/New_York';
 const AGENT_INVOKE_TIMEOUT_MS = 45000;
 const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
-const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar.
-If the user asks for calendar information, prefer using the calendar tools instead of guessing.
-Be explicit about any changes you make.`;
+const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar, generate images, and generate short videos from an image seed.
+If the user asks for calendar information, prefer using the calendar tools instead of guessing and summarize any changes you make.
+If the user asks for images, use the best image generation tool available.
+If the user asks for video, call the Replicate video tool (wavespeedai/wan-2.1-i2v-480p) with their prompt and an image URL to seed the first frame. Always summarize the video link returned.`;
 
 export type CoreTextPart = { type: 'text'; text: string };
 export type CoreChatMessage = {
@@ -41,8 +42,10 @@ export type AgentRunResult = {
   displayText?: string;
 };
 
+// Default to enabled; allow opting out with AGENT_TOOLS_ENABLED=false
 export function agentToolsEnabled() {
-  return process.env.AGENT_TOOLS_ENABLED === 'true';
+  const flag = process.env.AGENT_TOOLS_ENABLED;
+  return flag === undefined || flag === null || flag.toLowerCase() !== 'false';
 }
 
 export function isAgentEligible(providerId: ProviderId) {
