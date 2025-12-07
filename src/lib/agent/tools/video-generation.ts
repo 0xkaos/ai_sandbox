@@ -2,7 +2,7 @@ import { StructuredTool, type StructuredToolInterface } from '@langchain/core/to
 import { z } from 'zod';
 import Replicate from 'replicate';
 
-const MODEL_NAME = 'wavespeedai/wan-2.1-i2v-480p';
+const MODEL_NAME = 'wan-video/wan-2.5-t2v';
 const PROMPT_MIN_LEN = 8;
 const PROMPT_PREVIEW_LEN = 120;
 
@@ -11,34 +11,18 @@ const videoInputSchema = z.object({
     .string()
     .min(PROMPT_MIN_LEN, `Prompt must include enough detail (at least ${PROMPT_MIN_LEN} characters).`)
     .describe('Text prompt describing the video content.'),
-  image: z
-    .string()
-    .url('Provide a valid image URL to seed the first frame of the video.')
-    .describe('Image URL used as the initial frame.'),
-  aspectRatio: z
-    .enum(['16:9', '9:16'])
-    .default('16:9')
-    .describe('Aspect ratio of the output video.'),
-  fastMode: z
-    .enum(['Off', 'Balanced', 'Fast'])
-    .default('Balanced')
-    .describe('Speed/quality trade-off.'),
-  negativePrompt: z.string().optional().describe('Elements to avoid in the video.'),
-  seed: z.number().int().optional().describe('Random seed for reproducibility.'),
-  sampleSteps: z.number().int().min(1).max(40).default(30).describe('Number of inference steps.'),
-  sampleGuideScale: z.number().min(1).max(10).default(5).describe('Guidance scale for sampling.'),
-  sampleShift: z.number().int().min(0).max(10).default(3).describe('Flow shift parameter.'),
-  loraScale: z.number().min(0).max(4).default(1).describe('Strength of the main LoRA.'),
-  loraWeights: z
-    .string()
-    .optional()
-    .describe('Optional LoRA weights reference (HuggingFace/CivitAI/.safetensors URL).'),
-  disableSafetyChecker: z.boolean().default(false).describe('Disable safety checker for generation.'),
+  duration: z.number().int().min(1).max(12).default(10).describe('Video duration in seconds.'),
+  size: z
+    .enum(['1280*720', '720*1280', '1024*1024'])
+    .default('1280*720')
+    .describe('Resolution of the output video.'),
+  negativePrompt: z.string().default('').describe('Elements to avoid in the video.'),
+  enablePromptExpansion: z.boolean().default(true).describe('Allow model to expand the prompt for quality.'),
 });
 
 export class GenerateReplicateVideoTool extends StructuredTool<typeof videoInputSchema> {
   name = 'replicate_generate_video';
-  description = 'Generate a short video from an image and prompt using Replicate (WAN 2.1 i2v 480p).';
+  description = 'Generate a short video from text using Replicate (wan-video/wan-2.5-t2v).';
   schema = videoInputSchema;
 
   private used = false;
@@ -59,8 +43,9 @@ export class GenerateReplicateVideoTool extends StructuredTool<typeof videoInput
     console.log('[video-tool][replicate] generating video', {
       model: MODEL_NAME,
       promptPreview: input.prompt.slice(0, PROMPT_PREVIEW_LEN),
-      aspectRatio: input.aspectRatio ?? '16:9',
-      fastMode: input.fastMode ?? 'Balanced',
+      duration: input.duration,
+      size: input.size,
+      enablePromptExpansion: input.enablePromptExpansion,
     });
 
     const payload = buildPayload(input);
@@ -87,20 +72,12 @@ export class GenerateReplicateVideoTool extends StructuredTool<typeof videoInput
 function buildPayload(input: z.infer<typeof videoInputSchema>) {
   const payload: Record<string, unknown> = {
     prompt: input.prompt,
-    image: input.image,
-    aspect_ratio: input.aspectRatio ?? '16:9',
-    fast_mode: input.fastMode ?? 'Balanced',
-    negative_prompt: input.negativePrompt,
-    seed: input.seed,
-    sample_steps: input.sampleSteps ?? 30,
-    sample_guide_scale: input.sampleGuideScale ?? 5,
-    sample_shift: input.sampleShift ?? 3,
-    lora_scale: input.loraScale ?? 1,
-    lora_weights: input.loraWeights,
-    disable_safety_checker: input.disableSafetyChecker ?? false,
+    duration: input.duration ?? 10,
+    size: input.size ?? '1280*720',
+    negative_prompt: input.negativePrompt ?? '',
+    enable_prompt_expansion: input.enablePromptExpansion ?? true,
   };
 
-  // Strip undefined to avoid overriding model defaults.
   Object.keys(payload).forEach((key) => {
     if (payload[key] === undefined || payload[key] === null) {
       delete payload[key];
