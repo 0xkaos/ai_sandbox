@@ -1,4 +1,11 @@
-import { pgTable, text, timestamp, jsonb, integer, bytea } from 'drizzle-orm/pg-core';
+import { customType, pgTable, text, timestamp, jsonb, integer } from 'drizzle-orm/pg-core';
+
+// Drizzle version in use does not expose a built-in bytea helper, so define it via customType.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(), // Matches Google ID

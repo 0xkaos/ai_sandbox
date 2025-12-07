@@ -18,5 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   };
   if (video.sizeBytes) headers['Content-Length'] = String(video.sizeBytes);
 
-  return new Response(video.data, { status: 200, headers });
+  // Response expects a typed array/Blob; Buffer extends Uint8Array so this preserves the bytes.
+  const body = new Uint8Array(video.data);
+  return new Response(body, { status: 200, headers });
 }
