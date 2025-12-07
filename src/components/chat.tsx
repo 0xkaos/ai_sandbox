@@ -50,6 +50,9 @@ const proxyVideoUrl = (url: string) => {
     if (parsed.hostname.includes('replicate.delivery')) {
       return `/api/video/proxy?url=${encodeURIComponent(url)}`;
     }
+    if (parsed.pathname.startsWith('/api/videos/')) {
+      return url; // already cached internally
+    }
   } catch {
     // ignore
   }

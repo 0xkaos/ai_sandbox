@@ -1,6 +1,6 @@
 import { streamText } from 'ai';
 import { auth } from '@/lib/auth';
-import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
+import { createChat, getChat, saveMessage, ensureUser, cacheVideoFromUrl, extractVideoUrlsFromToolInvocations } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
 import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/agent/runtime';
 
@@ -164,6 +164,29 @@ export async function POST(req: Request) {
           messages: coreMessages as CoreChatMessage[],
           chatId,
         });
+
+        // Attempt to cache the first video for persistence/playback
+        try {
+          const videoUrls = extractVideoUrlsFromToolInvocations(agentResult.toolInvocations);
+          if (videoUrls.length > 0) {
+            const cached = await cacheVideoFromUrl({ userId, chatId, sourceUrl: videoUrls[0] });
+            // Attach cached video URL to the first tool invocation for UI consumption
+            if (agentResult.toolInvocations.length > 0) {
+              const first = agentResult.toolInvocations[0] as any;
+              first.result = typeof first.result === 'string' ? first.result : JSON.stringify(first.result ?? {});
+              const payload = { cachedVideoUrl: cached.storedUrl, sourceUrl: videoUrls[0] };
+              agentResult.toolInvocations[0] = {
+                ...agentResult.toolInvocations[0],
+                cachedVideoUrl: cached.storedUrl,
+                cachedVideoContentType: cached.contentType,
+                cachedVideoSize: cached.sizeBytes,
+                cachedVideo: payload,
+              } as any;
+            }
+          }
+        } catch (cacheErr) {
+          console.error('[chat-api] Failed to cache video', cacheErr);
+        }
 
         await saveMessage(chatId, {
           id: crypto.randomUUID(),

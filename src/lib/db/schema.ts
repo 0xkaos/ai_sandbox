@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, integer, bytea } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(), // Matches Google ID
@@ -27,5 +27,16 @@ export const messages = pgTable('messages', {
   role: text('role', { enum: ['user', 'assistant', 'system', 'data'] }).notNull(),
   content: text('content').notNull(),
   toolInvocations: jsonb('tool_invocations'), // Store tool calls/results
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const videos = pgTable('videos', {
+  id: text('id').primaryKey(),
+  chatId: text('chat_id').references(() => chats.id, { onDelete: 'cascade' }).notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  sourceUrl: text('source_url').notNull(),
+  contentType: text('content_type'),
+  sizeBytes: integer('size_bytes'),
+  data: bytea('data').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

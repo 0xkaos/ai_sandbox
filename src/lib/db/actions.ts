@@ -1,7 +1,8 @@
 import { db } from '@/lib/db';
-import { chats, messages, users } from '@/lib/db/schema';
+import { chats, messages, users, videos } from '@/lib/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { unstable_noStore as noStore } from 'next/cache';
+import { randomUUID } from 'crypto';
 
 export async function ensureUser(user: { id: string; email: string; name?: string | null }) {
   const existingUser = await db
@@ -108,6 +109,95 @@ export async function saveMessage(chatId: string, message: { id: string; role: s
     toolInvocations: message.toolInvocations || null,
     createdAt: message.createdAt || new Date(),
   });
+}
+
+export async function cacheVideoFromUrl(params: { userId: string; chatId: string; sourceUrl: string }) {
+  const { userId, chatId, sourceUrl } = params;
+  const id = randomUUID();
+
+  const response = await fetch(sourceUrl, { redirect: 'follow' });
+  if (!response.ok || !response.body) {
+    throw new Error(`Failed to fetch video (${response.status})`);
+  }
+
+  const contentType = response.headers.get('content-type') || undefined;
+  const sizeHeader = response.headers.get('content-length');
+  const sizeBytes = sizeHeader ? Number(sizeHeader) : undefined;
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  await db.insert(videos).values({
+    id,
+    chatId,
+    userId,
+    sourceUrl,
+    contentType,
+    sizeBytes: Number.isFinite(sizeBytes) ? sizeBytes : null,
+    data: buffer,
+  });
+
+  return { id, contentType, sizeBytes, storedUrl: `/api/videos/${id}` };
+}
+
+export async function getVideo(id: string) {
+  const result = await db.select().from(videos).where(eq(videos.id, id)).limit(1);
+  return result[0];
+}
+
+export function extractVideoUrlsFromToolInvocations(invocations: any): string[] {
+  if (!Array.isArray(invocations)) return [];
+  const urls: string[] = [];
+
+  for (const invocation of invocations) {
+    const result = invocation?.result;
+    if (!result) continue;
+
+    let payload: any = result;
+    if (typeof result === 'string') {
+      try {
+        payload = JSON.parse(result);
+      } catch {
+        if (typeof result === 'string' && result.startsWith('http')) {
+          urls.push(result);
+        }
+        continue;
+      }
+    }
+
+    if (Array.isArray(payload?.videos)) {
+      for (const vid of payload.videos) {
+        const candidate =
+          typeof vid === 'string'
+            ? vid
+            : typeof vid === 'object'
+            ? (typeof (vid as any).videoUrl === 'string'
+                ? (vid as any).videoUrl
+                : typeof (vid as any).url === 'string'
+                ? (vid as any).url
+                : null)
+            : null;
+        if (candidate && candidate.startsWith('http')) {
+          urls.push(candidate);
+        }
+      }
+    }
+
+    if (payload && typeof payload === 'object') {
+      const candidate =
+        typeof (payload as any).videoUrl === 'string'
+          ? (payload as any).videoUrl
+          : typeof (payload as any).video === 'string'
+          ? (payload as any).video
+          : Array.isArray((payload as any).output)
+          ? (payload as any).output.find((v: unknown) => typeof v === 'string' && v.startsWith('http'))
+          : null;
+      if (candidate && candidate.startsWith('http')) {
+        urls.push(candidate);
+      }
+    }
+  }
+
+  return urls;
 }
 
 export async function deleteChat(chatId: string, userId: string) {
