@@ -6,8 +6,8 @@ import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/
 
 export const runtime = 'nodejs';
 
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30;
+// Allow longer processing for video tool (requires Vercel plan support)
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
