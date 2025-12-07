@@ -64,7 +64,7 @@ export class GenerateReplicateVideoTool extends StructuredTool<typeof videoInput
     }
 
     const durationMs = Date.now() - started;
-    console.log('[video-tool][replicate] success', { model: MODEL_NAME, durationMs, videoUrl });
+    console.log('[video-tool][replicate] success', { model: MODEL_NAME, durationMs, videoUrl, outputPreview: summarizeOutput(output) });
 
     return JSON.stringify({
       provider: 'replicate',
@@ -73,6 +73,18 @@ export class GenerateReplicateVideoTool extends StructuredTool<typeof videoInput
       durationMs,
     });
   }
+}
+
+function summarizeOutput(output: unknown) {
+  if (typeof output === 'string') return output.slice(0, 200);
+  if (Array.isArray(output)) {
+    return output.map((v) => (typeof v === 'string' ? v.slice(0, 200) : typeof v === 'object' ? Object.keys(v as any) : typeof v)).slice(0, 5);
+  }
+  if (output && typeof output === 'object') {
+    const obj = output as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(obj).slice(0, 8));
+  }
+  return output;
 }
 
 function buildPayload(input: z.infer<typeof videoInputSchema>) {
@@ -94,50 +106,45 @@ function buildPayload(input: z.infer<typeof videoInputSchema>) {
 }
 
 function resolveOutputUrl(output: unknown): string | null {
-  // Prefer direct string outputs
-  if (typeof output === 'string' && output.startsWith('http')) {
-    return output;
+  const candidates: string[] = [];
+
+  const consider = (value: unknown) => {
+    if (typeof value === 'string' && value.startsWith('http')) {
+      candidates.push(value);
+    }
+  };
+
+  if (typeof output === 'string') {
+    consider(output);
   }
 
-  // New Replicate client returns a File-like object with url()
   if (output && typeof output === 'object') {
     const maybeUrlFn = (output as any).url;
     if (typeof maybeUrlFn === 'function') {
       try {
-        const url = maybeUrlFn.call(output);
-        if (typeof url === 'string' && url.startsWith('http')) {
-          return url;
-        }
+        consider(maybeUrlFn.call(output));
       } catch {
-        // ignore and continue fallbacks
+        // ignore
       }
     }
 
-    if (typeof (output as any).url === 'string' && (output as any).url.startsWith('http')) {
-      return (output as any).url;
-    }
-
-    if (typeof (output as any).output === 'string' && (output as any).output.startsWith('http')) {
-      return (output as any).output;
-    }
+    consider((output as any).url);
+    consider((output as any).output);
 
     const nested = findHttpUrlDeep((output as any).output ?? output);
-    if (nested) return nested;
+    if (nested) consider(nested);
   }
 
   if (Array.isArray(output)) {
-    const directString = output.find((value) => typeof value === 'string' && value.startsWith('http'));
-    if (typeof directString === 'string') {
-      return directString;
-    }
-
     for (const value of output) {
       const nested = findHttpUrlDeep(value);
-      if (nested) return nested;
+      if (nested) consider(nested);
     }
   }
 
-  return null;
+  const withVideoExt = candidates.find((c) => /\.(mp4|webm|mov|mkv|m4v)(\?|$)/i.test(c));
+  if (withVideoExt) return withVideoExt;
+  return candidates[0] ?? null;
 }
 
 function findHttpUrlDeep(value: unknown, depth = 0): string | null {

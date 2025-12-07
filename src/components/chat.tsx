@@ -462,6 +462,8 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                             key={`${m.id}-vid-${idx}`}
                             src={src}
                             controls
+                            playsInline
+                            preload="metadata"
                             className="rounded-md border shadow-sm"
                           />
                         ))}

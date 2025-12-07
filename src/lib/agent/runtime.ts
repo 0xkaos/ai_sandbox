@@ -443,7 +443,14 @@ function extractMedia(toolInvocations: AgentToolInvocationLog[]): { images: stri
         images.push(normalizedImage);
       }
 
-      const maybeVideo = typeof (payload as any).videoUrl === 'string' ? (payload as any).videoUrl : typeof (payload as any).video === 'string' ? (payload as any).video : null;
+      const maybeVideo =
+        typeof (payload as any).videoUrl === 'string'
+          ? (payload as any).videoUrl
+          : typeof (payload as any).video === 'string'
+          ? (payload as any).video
+          : Array.isArray((payload as any).output)
+          ? (payload as any).output.find((v: unknown) => typeof v === 'string' && v.startsWith('http'))
+          : null;
       const normalizedVideo = normalizeVideoReference(maybeVideo) || extractHttpVideo(JSON.stringify(payload));
       if (normalizedVideo) {
         videos.push(normalizedVideo);
