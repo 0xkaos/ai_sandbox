@@ -111,7 +111,7 @@ export async function runAgentWithTools(params: {
   const media = extractMedia(toolInvocations);
   const displayText =
     media.videos.length > 0
-      ? 'Generated video ready.'
+      ? `Generated video ready. ${media.videos[0]}`
       : media.images.length > 0
       ? 'Generated image ready.'
       : finalText;
