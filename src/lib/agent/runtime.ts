@@ -3,12 +3,17 @@ import { createAgent } from 'langchain';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatXAI } from '@langchain/xai';
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import { emitAgentEvent } from '@/lib/agent/events';
+import { cacheDataUrl } from '@/lib/images/cache';
 import type { ProviderId } from '@/lib/providers';
 import { buildAgentTools } from '@/lib/agent/tools';
 
 const textEncoder = new TextEncoder();
 const AGENT_ALLOWED_PROVIDERS: ProviderId[] = ['openai', 'xai'];
 const DEFAULT_AGENT_TIMEZONE = 'America/New_York';
+const AGENT_INVOKE_TIMEOUT_MS = 45000;
+const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 const SYSTEM_PROMPT_BASE = `You are an autonomous AI teammate that can read and write the user's Google Calendar.
 If the user asks for calendar information, prefer using the calendar tools instead of guessing.
 Be explicit about any changes you make.`;
@@ -33,6 +38,7 @@ export type AgentRunResult = {
   stream: ReadableStream<Uint8Array>;
   finalText: string;
   toolInvocations: AgentToolInvocationLog[];
+  displayText?: string;
 };
 
 export function agentToolsEnabled() {
@@ -56,9 +62,13 @@ export async function runAgentWithTools(params: {
   providerId: ProviderId;
   modelId: string;
   messages: CoreChatMessage[];
+  chatId?: string;
 }): Promise<AgentRunResult> {
-  const { userId, providerId, modelId, messages } = params;
+  const { userId, providerId, modelId, messages, chatId } = params;
+  const toolEventsEnabled = Boolean(chatId);
   const tools = buildAgentTools(userId);
+  const toolEventsFlag = { value: false };
+  const instrumentedTools = toolEventsEnabled ? instrumentToolsWithEvents(tools, chatId!, toolEventsFlag) : tools;
 
   if (tools.length === 0) {
     throw new Error('No tools are currently configured for the agent.');
@@ -68,29 +78,57 @@ export async function runAgentWithTools(params: {
 
   const agent = createAgent({
     model,
-    tools,
+    tools: instrumentedTools,
     systemPrompt: buildSystemPrompt(),
   });
 
   const lcMessages = convertMessagesToLangChain(messages);
-  const agentState = await agent.invoke({ messages: lcMessages });
+
+  const started = Date.now();
+  const agentState = await withTimeout(
+    agent.invoke({ messages: lcMessages }),
+    AGENT_INVOKE_TIMEOUT_MS,
+    `Agent invocation timed out after ${AGENT_INVOKE_TIMEOUT_MS}ms`
+  );
+  const durationMs = Date.now() - started;
   const finalAiMessage = extractLatestAiMessage(agentState.messages);
 
   if (!finalAiMessage) {
     throw new Error('Agent did not return an assistant message.');
   }
 
-  const finalText = getMessageText(finalAiMessage);
+  const finalText = sanitizeText(getMessageText(finalAiMessage));
   const toolInvocations = extractToolInvocations(agentState.messages);
+
+  if (chatId) {
+    emitAgentEvents(chatId, toolInvocations, finalText, durationMs, toolEventsFlag.value);
+  }
+
+  const imageUrls = extractImageUrls(toolInvocations);
+  const displayText = imageUrls.length > 0 ? 'Generated image ready.' : finalText;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(textEncoder.encode(finalText));
+      controller.enqueue(textEncoder.encode(displayText));
       controller.close();
     },
   });
 
-  return { stream, finalText, toolInvocations };
+  return { stream, finalText, toolInvocations, displayText };
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function convertMessagesToLangChain(messages: CoreChatMessage[]): BaseMessage[] {
@@ -209,6 +247,182 @@ function extractToolInvocations(messages: BaseMessage[]): AgentToolInvocationLog
   }
 
   return logs;
+}
+
+function emitAgentEvents(
+  chatId: string,
+  toolInvocations: AgentToolInvocationLog[],
+  finalText: string,
+  durationMs: number,
+  toolEventsEmitted: boolean
+) {
+  // Emit aggregated tool-result only if no per-tool event was sent
+  if (!toolEventsEmitted && toolInvocations.length) {
+    const images = extractImageUrls(toolInvocations);
+    emitAgentEvent(chatId, {
+      type: 'tool-result',
+      name: toolInvocations[toolInvocations.length - 1]?.name,
+      images,
+      text: images.length ? 'Image generated' : 'Tool completed',
+      durationMs,
+      ts: Date.now(),
+    });
+  }
+
+  if (finalText) {
+    emitAgentEvent(chatId, { type: 'final', text: sanitizeText(finalText), ts: Date.now() });
+  }
+}
+
+function instrumentToolsWithEvents(tools: StructuredToolInterface[], chatId: string, toolEventsFlag: { value: boolean }): StructuredToolInterface[] {
+  return tools.map((tool) => {
+    const runnable: any = tool as any;
+    if (runnable.__instrumented || typeof runnable.invoke !== 'function') {
+      return tool;
+    }
+
+    runnable.__instrumented = true;
+    const originalInvoke = runnable.invoke.bind(runnable);
+    const toolName = runnable.name ?? 'tool';
+
+    runnable.invoke = async (input: unknown, options?: unknown) => {
+      const startTs = Date.now();
+      emitAgentEvent(chatId, {
+        type: 'tool-start',
+        name: toolName,
+        args: coerceArgs(input),
+        ts: startTs,
+      });
+
+      try {
+        const result = await originalInvoke(input, options);
+        const durationMs = Date.now() - startTs;
+        const images = extractImageUrlsFromResult(result);
+
+        emitAgentEvent(chatId, {
+          type: 'tool-result',
+          name: toolName,
+          text: images.length ? 'Image generated' : 'Tool completed',
+          images,
+          durationMs,
+          ts: Date.now(),
+        });
+
+        if (images.length) {
+          console.log('[agent-events] tool-result images', { chatId, tool: toolName, count: images.length, images });
+        }
+
+        toolEventsFlag.value = true;
+
+        return result;
+      } catch (error) {
+        const durationMs = Date.now() - startTs;
+        emitAgentEvent(chatId, {
+          type: 'tool-result',
+          name: toolName,
+          error: error instanceof Error ? error.message : String(error),
+          durationMs,
+          ts: Date.now(),
+        });
+        toolEventsFlag.value = true;
+        throw error;
+      }
+    };
+
+    return runnable as StructuredToolInterface;
+  });
+}
+
+function coerceArgs(input: unknown): Record<string, unknown> | undefined {
+  if (!input) return undefined;
+  try {
+    const cloned = JSON.parse(JSON.stringify(input));
+    if (cloned && typeof cloned === 'object') {
+      return cloned as Record<string, unknown>;
+    }
+  } catch {
+    // ignore serialization errors
+  }
+  return undefined;
+}
+
+function extractImageUrlsFromResult(result: unknown): string[] {
+  if (!result) return [];
+  return extractImageUrls([
+    {
+      toolCallId: null,
+      name: null,
+      result,
+    },
+  ]);
+}
+
+function extractImageUrls(toolInvocations: AgentToolInvocationLog[]): string[] {
+  const urls: string[] = [];
+  for (const invocation of toolInvocations) {
+    const result = invocation.result;
+    if (!result) continue;
+
+    let payload: any = result;
+    if (typeof result === 'string') {
+      try {
+        payload = JSON.parse(result);
+      } catch {
+        const normalized = normalizeImageReference(result) || extractHttpImage(result);
+        if (normalized) {
+          urls.push(normalized);
+        }
+        continue;
+      }
+    }
+
+    if (Array.isArray(payload?.images)) {
+      for (const img of payload.images) {
+        const normalized = normalizeImageReference(
+          typeof img === 'string'
+            ? img
+            : typeof img === 'object'
+            ? (typeof img.dataUrl === 'string'
+                ? img.dataUrl
+                : typeof img.url === 'string'
+                ? img.url
+                : null)
+            : null
+        );
+        if (normalized) {
+          urls.push(normalized);
+        }
+      }
+    } else if (payload && typeof payload === 'object') {
+      const maybeUrl = typeof payload.url === 'string' ? payload.url : typeof payload.image === 'string' ? payload.image : null;
+      const normalized = normalizeImageReference(maybeUrl) || extractHttpImage(JSON.stringify(payload));
+      if (normalized) {
+        urls.push(normalized);
+      }
+    }
+  }
+  return urls;
+}
+
+function extractHttpImage(text: string | null): string | null {
+  if (!text) return null;
+  const match = text.match(/https?:[^\s"']+\.(?:png|jpg|jpeg|gif|webp)/i);
+  return match ? match[0] : null;
+}
+
+function normalizeImageReference(value: string | null): string | null {
+  if (!value) return null;
+  if (value.startsWith('data:image/')) {
+    const id = cacheDataUrl(value);
+    if (!id) return null;
+    return `/api/images/${id}`;
+  }
+  return value;
+}
+
+function sanitizeText(text: string) {
+  if (!text) return '';
+  return text.replace(DATA_URL_REGEX, '[image]');
 }
 
 function createAgentLanguageModel(providerId: ProviderId, modelId: string) {

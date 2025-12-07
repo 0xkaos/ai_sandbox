@@ -1,0 +1,17 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getCachedImage } from '@/lib/images/cache';
+
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const entry = getCachedImage(params.id);
+  if (!entry) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  return new NextResponse(entry.data, {
+    status: 200,
+    headers: {
+      'Content-Type': entry.contentType,
+      'Cache-Control': 'public, max-age=86400',
+    },
+  });
+}

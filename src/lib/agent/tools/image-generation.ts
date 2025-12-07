@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 const OPENAI_IMAGE_MODEL = 'gpt-image-1';
 const XAI_IMAGE_MODEL = 'grok-2-image-1212';
+const REQUEST_TIMEOUT_MS = 20000;
+const PROMPT_PREVIEW_LEN = 120;
 
 const baseImageSchema = z.object({
   prompt: z.string().min(8, 'Prompt must include enough detail (at least 8 characters).'),
@@ -11,8 +13,6 @@ const baseImageSchema = z.object({
 
 const openaiImageSchema = baseImageSchema.extend({
   size: z.enum(['256x256', '512x512', '1024x1024', '2048x2048']).optional(),
-  quality: z.enum(['standard', 'hd']).optional(),
-  style: z.enum(['natural', 'vivid']).optional(),
 });
 
 const xaiImageSchema = baseImageSchema.extend({
@@ -30,17 +30,40 @@ const getimgImageSchema = baseImageSchema.extend({
 
 const dataUrlFromBase64 = (value: string, mime = 'image/png') => `data:${mime};base64,${value}`;
 
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
   name = 'openai_generate_image';
   description = 'Generate images with OpenAI gpt-image-1. Provide a detailed prompt and optional size/quality.';
   schema = openaiImageSchema;
+
+  private used = false;
 
   constructor(private readonly apiKey: string) {
     super();
   }
 
   protected async _call(input: z.infer<typeof openaiImageSchema>): Promise<string> {
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
+    if (this.used) {
+      return JSON.stringify({ provider: 'openai', model: OPENAI_IMAGE_MODEL, note: 'image tool already used in this request' });
+    }
+    this.used = true;
+    console.log('[image-tool][openai] generating image', {
+      promptPreview: input.prompt.slice(0, PROMPT_PREVIEW_LEN),
+      count: input.count ?? 1,
+      size: input.size ?? '1024x1024',
+    });
+
+    const response = await fetchWithTimeout('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -51,15 +74,13 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
         prompt: input.prompt,
         n: input.count ?? 1,
         size: input.size ?? '1024x1024',
-        quality: input.quality ?? 'standard',
-        style: input.style ?? 'natural',
-        response_format: 'b64_json',
       }),
     });
 
     const payload = await response.json();
     if (!response.ok) {
       const message = payload?.error?.message ?? 'Failed to generate image with OpenAI.';
+      console.error('[image-tool][openai] failed', message);
       throw new Error(message);
     }
 
@@ -70,6 +91,8 @@ class GenerateOpenAIImageTool extends StructuredTool<typeof openaiImageSchema> {
           revisedPrompt: item?.revised_prompt ?? null,
         }))
       : [];
+
+    console.log('[image-tool][openai] success', { count: images.length });
 
     return JSON.stringify({ provider: 'openai', model: OPENAI_IMAGE_MODEL, count: images.length, images });
   }
@@ -80,12 +103,24 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
   description = 'Generate images with xAI Grok-2 Image. Supply a descriptive prompt and optional aspect ratio.';
   schema = xaiImageSchema;
 
+  private used = false;
+
   constructor(private readonly apiKey: string) {
     super();
   }
 
   protected async _call(input: z.infer<typeof xaiImageSchema>): Promise<string> {
-    const response = await fetch('https://api.x.ai/v1/images/generations', {
+    if (this.used) {
+      return JSON.stringify({ provider: 'xai', model: XAI_IMAGE_MODEL, note: 'image tool already used in this request' });
+    }
+    this.used = true;
+    console.log('[image-tool][xai] generating image', {
+      promptPreview: input.prompt.slice(0, PROMPT_PREVIEW_LEN),
+      aspectRatio: input.aspectRatio ?? '1:1',
+      count: input.count ?? 1,
+    });
+
+    const response = await fetchWithTimeout('https://api.x.ai/v1/images/generations', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -96,13 +131,14 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
         prompt: input.prompt,
         n: input.count ?? 1,
         aspect_ratio: input.aspectRatio ?? '1:1',
-        response_format: 'b64_json',
+        response_format: 'url',
       }),
     });
 
     const payload = await response.json();
     if (!response.ok) {
       const message = payload?.error?.message ?? 'Failed to generate image with xAI.';
+      console.error('[image-tool][xai] failed', message);
       throw new Error(message);
     }
 
@@ -114,6 +150,8 @@ class GenerateXAIImageTool extends StructuredTool<typeof xaiImageSchema> {
         }))
       : [];
 
+    console.log('[image-tool][xai] success', { count: images.length });
+
     return JSON.stringify({ provider: 'xai', model: XAI_IMAGE_MODEL, count: images.length, images });
   }
 }
@@ -123,13 +161,27 @@ class GenerateGetimgImageTool extends StructuredTool<typeof getimgImageSchema> {
   description = 'Generate images with getimg Seedream v4. Useful for stylized concepts and marketing visuals.';
   schema = getimgImageSchema;
 
+  private used = false;
+
   constructor(private readonly apiKey: string) {
     super();
   }
 
   protected async _call(input: z.infer<typeof getimgImageSchema>): Promise<string> {
+    if (this.used) {
+      return JSON.stringify({ provider: 'getimg', model: 'seedream-v4', note: 'image tool already used in this request' });
+    }
+    this.used = true;
+    console.log('[image-tool][getimg] generating image', {
+      promptPreview: input.prompt.slice(0, PROMPT_PREVIEW_LEN),
+      ratio: input.ratio ?? '1:1',
+      width: input.width,
+      height: input.height,
+      count: input.count ?? 1,
+    });
+
     const { width, height } = resolveGetimgDimensions(input);
-    const response = await fetch('https://api.getimg.ai/v1/seedream-v4/text-to-image', {
+    const response = await fetchWithTimeout('https://api.getimg.ai/v1/seedream-v4/text-to-image', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -143,18 +195,21 @@ class GenerateGetimgImageTool extends StructuredTool<typeof getimgImageSchema> {
         guidance: input.guidance ?? 9,
         steps: input.steps ?? 28,
         output_format: 'png',
-        response_format: 'b64',
+        response_format: 'url',
       }),
     });
 
     const payload = await response.json();
     if (!response.ok) {
       const message = payload?.error ?? payload?.message ?? 'Failed to generate image with getimg.';
+      console.error('[image-tool][getimg] failed', message);
       throw new Error(typeof message === 'string' ? message : 'Failed to generate image with getimg.');
     }
 
     const rawImages = extractGetimgImages(payload);
     const images = rawImages.map((raw, index) => ({ index, dataUrl: normalizeToDataUrl(raw) }));
+
+    console.log('[image-tool][getimg] success', { count: images.length });
 
     return JSON.stringify({ provider: 'getimg', model: 'seedream-v4', count: images.length, images });
   }
@@ -202,20 +257,22 @@ function normalizeToDataUrl(value: string) {
 }
 
 export function getImageGeneratorTools(): StructuredToolInterface[] {
-  const tools: StructuredToolInterface[] = [];
-  const openaiKey = process.env.OPENAI_API_KEY;
   const xaiKey = process.env.XAI_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
   const getimgKey = process.env.GETIMG_API_KEY;
 
-  if (openaiKey) {
-    tools.push(new GenerateOpenAIImageTool(openaiKey));
-  }
+  // Prefer xAI when available; otherwise fall back to OpenAI, then getimg.
   if (xaiKey) {
-    tools.push(new GenerateXAIImageTool(xaiKey));
-  }
-  if (getimgKey) {
-    tools.push(new GenerateGetimgImageTool(getimgKey));
+    return [new GenerateXAIImageTool(xaiKey)];
   }
 
-  return tools;
+  if (openaiKey) {
+    return [new GenerateOpenAIImageTool(openaiKey)];
+  }
+
+  if (getimgKey) {
+    return [new GenerateGetimgImageTool(getimgKey)];
+  }
+
+  return [];
 }

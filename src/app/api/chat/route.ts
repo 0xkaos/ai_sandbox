@@ -4,6 +4,8 @@ import { createChat, getChat, saveMessage, ensureUser } from '@/lib/db/actions';
 import { resolveLanguageModel, normalizeModelSelection, DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, type ProviderId } from '@/lib/providers';
 import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/agent/runtime';
 
+export const runtime = 'nodejs';
+
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
@@ -98,9 +100,20 @@ export async function POST(req: Request) {
 
     // Convert to core messages for the AI SDK
     console.log('[chat-api] Normalizing messages for model');
+    const MAX_MESSAGES = 4;
+    const scrubDataUrls = (text: string) => {
+      if (!text) return '';
+      return text.replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[image]');
+    };
+
+    const clampText = (text: string, max = 500) => {
+      if (text.length <= max) return text;
+      return `${text.slice(0, max)}…`;
+    };
+
     const normalizeToTextParts = (value: any): Array<{ type: 'text'; text: string }> => {
       if (typeof value === 'string' && value.length > 0) {
-        return [{ type: 'text', text: value }];
+        return [{ type: 'text', text: clampText(scrubDataUrls(value)) }];
       }
 
       if (Array.isArray(value)) {
@@ -108,13 +121,13 @@ export async function POST(req: Request) {
           .map((part) => {
             if (!part) return null;
             if (typeof part === 'string') {
-              return { type: 'text', text: part };
+              return { type: 'text', text: clampText(scrubDataUrls(part)) };
             }
             if (part.type === 'text' && typeof part.text === 'string') {
-              return { type: 'text', text: part.text };
+              return { type: 'text', text: clampText(scrubDataUrls(part.text)) };
             }
             if (typeof part.text === 'string') {
-              return { type: 'text', text: part.text };
+              return { type: 'text', text: clampText(scrubDataUrls(part.text)) };
             }
             return null;
           })
@@ -128,11 +141,18 @@ export async function POST(req: Request) {
       return [{ type: 'text', text: '' }];
     };
 
-    const coreMessages = messages.map((m: any) => ({
+    const limitedMessages = messages.slice(-MAX_MESSAGES);
+
+    const coreMessages = limitedMessages.map((m: any) => ({
       role: m.role,
       content: normalizeToTextParts(m.parts ?? m.content),
-      ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {}),
+      // Intentionally drop toolInvocations when sending to the model to avoid context bloat
     }));
+
+    // If everything is empty after clamping, provide a tiny placeholder to avoid empty prompt errors
+    if (coreMessages.length === 0) {
+      coreMessages.push({ role: 'user', content: [{ type: 'text', text: 'Hi' }] });
+    }
 
     if (isAgentEligible(providerId)) {
       try {
@@ -142,6 +162,7 @@ export async function POST(req: Request) {
           providerId,
           modelId,
           messages: coreMessages as CoreChatMessage[],
+          chatId,
         });
 
         await saveMessage(chatId, {
@@ -180,7 +201,7 @@ export async function POST(req: Request) {
           await saveMessage(chatId, {
             id: crypto.randomUUID(),
             role: 'assistant',
-            content: text,
+            content: text?.replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[image]'),
             toolInvocations: toolCalls as any,
             createdAt: new Date(),
           });

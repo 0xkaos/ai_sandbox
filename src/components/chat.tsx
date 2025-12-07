@@ -17,6 +17,21 @@ import remarkGfm from 'remark-gfm';
 
 type TextLikePart = { type?: string; text?: string };
 
+type ToolInvocation = {
+  result?: unknown;
+};
+
+type AgentEvent = {
+  type: 'tool-start' | 'tool-result' | 'final';
+  name?: string | null;
+  images?: string[];
+  text?: string | null;
+  args?: Record<string, unknown>;
+  error?: string | null;
+  durationMs?: number;
+  ts?: number;
+};
+
 const stripWrappingQuotes = (value: string) => {
   const trimmed = value.trim();
   if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
@@ -25,12 +40,15 @@ const stripWrappingQuotes = (value: string) => {
   return trimmed;
 };
 
+const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
+const HTTP_IMAGE_REGEX = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif))/gi;
+
 const parseSsePayloadToText = (raw: string) => {
   if (!raw || raw.indexOf('data:') === -1) {
     return null;
   }
 
-  const normalized = stripWrappingQuotes(raw).replace(/\\n/g, '\n');
+  const normalized = stripWrappingQuotes(raw).replace(/\n/g, '\n');
   const segments = normalized
     .split('data:')
     .map((segment) => segment.trim())
@@ -63,6 +81,24 @@ const parseSsePayloadToText = (raw: string) => {
   return buffer || null;
 };
 
+const isLikelySsePayload = (value: string) => {
+  if (!value.includes('data:')) return false;
+  if (value.trim().startsWith('data:image/')) return false;
+  // Heuristic: any SSE-style JSON frame with a type field (start/text/text-delta/error/etc.).
+  return /data:\s*\{[^}]*"type"\s*:\s*"[A-Za-z0-9_-]+"/.test(value);
+};
+
+const formatDuration = (ms?: number) => {
+  if (ms === undefined || ms === null) return '';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+};
+
+const formatTimestamp = (ts?: number) => {
+  if (!ts) return '';
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+};
+
 const decodeTextSnippet = (value?: string) => {
   if (typeof value !== 'string') {
     return '';
@@ -73,8 +109,8 @@ const decodeTextSnippet = (value?: string) => {
     return decoded;
   }
 
-  // Hide raw SSE payload text until we have actual decoded content
-  if (value.includes('data:')) {
+  // Do not hide data URLs or plain strings that happen to contain "data:"
+  if (isLikelySsePayload(value)) {
     return '';
   }
 
@@ -92,6 +128,86 @@ const collapseTextParts = (parts?: TextLikePart[]) => {
     .join('');
 };
 
+const extractImagesFromText = (value: string) => {
+  const images: string[] = [];
+  for (const match of value.matchAll(DATA_URL_REGEX)) {
+    images.push(match[0]);
+  }
+  for (const match of value.matchAll(HTTP_IMAGE_REGEX)) {
+    images.push(match[0]);
+  }
+  return images;
+};
+
+const extractImagesFromToolInvocations = (toolInvocations: unknown): string[] => {
+  if (!Array.isArray(toolInvocations)) return [];
+
+  const images: string[] = [];
+
+  for (const invocation of toolInvocations as ToolInvocation[]) {
+    const result = invocation?.result;
+    if (!result) continue;
+
+    let payload: any = result;
+    if (typeof result === 'string') {
+      try {
+        payload = JSON.parse(result);
+      } catch {
+        // If it is just a raw data URL string, handle directly.
+        if (typeof result === 'string' && result.startsWith('data:image/')) {
+          images.push(result);
+        }
+        continue;
+      }
+    }
+
+    if (Array.isArray(payload?.images)) {
+      for (const img of payload.images) {
+        if (typeof img === 'string' && img.startsWith('data:image/')) {
+          images.push(img);
+        }
+        if (img && typeof img === 'object' && typeof img.dataUrl === 'string') {
+          images.push(img.dataUrl);
+        }
+        if (img && typeof img === 'object' && typeof img.url === 'string') {
+          images.push(img.url);
+        }
+        if (typeof img === 'string' && /^https?:\/\//.test(img)) {
+          images.push(img);
+        }
+      }
+    }
+  }
+
+  return images;
+};
+
+const normalizeMessage = (message: UIMessage) => {
+  const msg = message as any;
+
+  const collectText = () => {
+    if (typeof msg.content === 'string') {
+      return decodeTextSnippet(msg.content);
+    }
+
+    const fromContent = collapseTextParts(msg.content);
+    if (fromContent) {
+      return fromContent;
+    }
+
+    return collapseTextParts(msg.parts);
+  };
+
+  const text = collectText();
+  const images = [
+    ...extractImagesFromText(text),
+    ...extractImagesFromToolInvocations(msg.toolInvocations),
+  ];
+  const textWithoutImages = images.length > 0 ? text.replace(DATA_URL_REGEX, '').replace(HTTP_IMAGE_REGEX, '').trim() : text;
+
+  return { text: textWithoutImages, images };
+};
+
 interface ChatProps {
   id?: string;
   initialMessages?: UIMessage[];
@@ -103,6 +219,8 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
+  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+  const [ephemeralImages, setEphemeralImages] = useState<string[]>([]);
   const { provider, model, syncFromChat } = useChatSettings();
   const modelMetadata = useMemo(() => getModelMetadata(provider, model), [model, provider]);
   const markdownPlugins = useMemo(() => [remarkGfm], []);
@@ -128,12 +246,11 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
     messages: initialMessages,
     transport,
     onFinish: () => {
-      // If we're on the home page (no ID prop), navigate to the chat page
       if (!id) {
         window.history.replaceState({}, '', `/chat/${activeChatId}`);
         syncFromChat({ chatId: activeChatId });
-        router.refresh(); // Refresh to update sidebar
       }
+      // Rely on SSE + stream for live updates; no router refresh
     },
   });
 
@@ -161,8 +278,6 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
     const value = input;
     setInput('');
     
-    // Use sendMessage which is available in this SDK version
-    // We construct a user message object
     await sendMessage({
       role: 'user', 
       content: value 
@@ -177,19 +292,34 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
     }
   }, [messages]);
 
-  const getMessageText = (message: UIMessage) => {
-    const msg = message as any;
-    if (typeof msg.content === 'string') {
-      return decodeTextSnippet(msg.content);
-    }
+  useEffect(() => {
+    if (!activeChatId) return;
+    const es = new EventSource(`/api/agent-events/${activeChatId}`);
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as AgentEvent;
+        if (!data || !data.type) return;
+        if (data.type === 'tool-result' && Array.isArray(data.images) && data.images.length > 0) {
+          // Debug visibility: log tool-result images for live inline rendering issues
+          console.debug('[agent-events] tool-result images', data.images);
+          setEphemeralImages((prev) => {
+            const next = new Set(prev);
+            data.images.forEach((img) => next.add(img));
+            return Array.from(next);
+          });
+        }
+        setAgentEvents((prev) => [...prev.slice(-20), data]);
+      } catch {
+        // ignore parse errors
+      }
+    };
+    es.onerror = () => {
+      es.close();
+    };
+    return () => es.close();
+  }, [activeChatId]);
 
-    const fromContent = collapseTextParts(msg.content);
-    if (fromContent) {
-      return fromContent;
-    }
-
-    return collapseTextParts(msg.parts);
-  };
+  // Keep ephemeral images visible until the chat reloads; avoids premature clearing when older messages already contain images.
 
   return (
     <div className="flex flex-col h-full max-w-3xl mx-auto p-4 w-full">
@@ -206,8 +336,8 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
               </div>
             </div>
             {messages.map((m: UIMessage) => {
-              const text = getMessageText(m);
-              if (m.role !== 'user' && !text.trim()) {
+              const { text, images } = normalizeMessage(m);
+              if (m.role !== 'user' && !text.trim() && images.length === 0) {
                 return null;
               }
 
@@ -223,19 +353,52 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                         : 'bg-muted'
                     }`}
                   >
-                    {m.role === 'user' ? (
-                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                        {text}
-                      </p>
-                    ) : (
-                      <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:underline">
-                        <ReactMarkdown remarkPlugins={markdownPlugins}>{text}</ReactMarkdown>
+                    {text.trim() && (
+                      m.role === 'user' ? (
+                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                          {text}
+                        </p>
+                      ) : (
+                        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:underline">
+                          <ReactMarkdown remarkPlugins={markdownPlugins}>{text}</ReactMarkdown>
+                        </div>
+                      )
+                    )}
+                    {images.length > 0 && (
+                      <div className="mt-3 grid grid-cols-1 gap-3">
+                        {images.map((src, idx) => (
+                          <img
+                            key={`${m.id}-img-${idx}`}
+                            src={src}
+                            alt="Generated"
+                            className="rounded-md border shadow-sm"
+                            loading="lazy"
+                          />
+                        ))}
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
+            {ephemeralImages.length > 0 && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-lg px-4 py-2 w-full">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Images (pending save)</div>
+                  <div className="grid grid-cols-1 gap-3">
+                    {ephemeralImages.map((src, idx) => (
+                      <img
+                        key={`ephemeral-${idx}`}
+                        src={src}
+                        alt="Generated"
+                        className="rounded-md border shadow-sm"
+                        loading="lazy"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             {status === 'submitted' && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-lg px-4 py-2">
@@ -244,6 +407,30 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
               </div>
             )}
             <div ref={scrollRef} />
+            {agentEvents.length > 0 && (
+              <div className="rounded-md border p-3 text-xs text-muted-foreground space-y-2 bg-muted/50">
+                <div className="font-semibold text-foreground text-sm">Agent Console</div>
+                {agentEvents.map((evt, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="uppercase tracking-wide text-[11px] text-muted-foreground">{evt.type}</span>
+                      {evt.name && <span className="text-foreground">{evt.name}</span>}
+                      {evt.durationMs !== undefined && evt.durationMs !== null && (
+                        <span className="text-[11px] text-muted-foreground">{formatDuration(evt.durationMs)}</span>
+                      )}
+                      {evt.ts && <span className="text-[11px] text-muted-foreground">{formatTimestamp(evt.ts)}</span>}
+                    </div>
+                    {evt.args && (
+                      <pre className="bg-background/60 rounded border px-2 py-1 text-[11px] overflow-x-auto">
+                        {JSON.stringify(evt.args, null, 2)}
+                      </pre>
+                    )}
+                    {evt.error && <div className="text-destructive">{evt.error}</div>}
+                    {evt.text && <div className="text-foreground break-words">{evt.text}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </ScrollArea>
       </Card>
