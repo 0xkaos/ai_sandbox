@@ -94,6 +94,11 @@ function buildPayload(input: z.infer<typeof videoInputSchema>) {
 }
 
 function resolveOutputUrl(output: unknown): string | null {
+  // Prefer direct string outputs
+  if (typeof output === 'string' && output.startsWith('http')) {
+    return output;
+  }
+
   // New Replicate client returns a File-like object with url()
   if (output && typeof output === 'object') {
     const maybeUrlFn = (output as any).url;
@@ -115,17 +120,60 @@ function resolveOutputUrl(output: unknown): string | null {
     if (typeof (output as any).output === 'string' && (output as any).output.startsWith('http')) {
       return (output as any).output;
     }
+
+    const nested = findHttpUrlDeep((output as any).output ?? output);
+    if (nested) return nested;
   }
 
   if (Array.isArray(output)) {
-    const candidate = output.find((value) => typeof value === 'string' && value.startsWith('http'));
-    if (typeof candidate === 'string') {
-      return candidate;
+    const directString = output.find((value) => typeof value === 'string' && value.startsWith('http'));
+    if (typeof directString === 'string') {
+      return directString;
+    }
+
+    for (const value of output) {
+      const nested = findHttpUrlDeep(value);
+      if (nested) return nested;
     }
   }
 
-  if (typeof output === 'string' && output.startsWith('http')) {
-    return output;
+  return null;
+}
+
+function findHttpUrlDeep(value: unknown, depth = 0): string | null {
+  if (depth > 4 || value === null || value === undefined) return null;
+
+  if (typeof value === 'string') {
+    return value.startsWith('http') ? value : null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const url = findHttpUrlDeep(entry, depth + 1);
+      if (url) return url;
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    // Check common keys first
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.url === 'string' && obj.url.startsWith('http')) return obj.url;
+    if (typeof obj.output === 'string' && (obj.output as string).startsWith('http')) return obj.output as string;
+    if (Array.isArray(obj.output)) {
+      const url = findHttpUrlDeep(obj.output, depth + 1);
+      if (url) return url;
+    }
+    if (Array.isArray(obj.files)) {
+      const url = findHttpUrlDeep(obj.files, depth + 1);
+      if (url) return url;
+    }
+
+    // Fallback: scan values
+    for (const val of Object.values(obj)) {
+      const url = findHttpUrlDeep(val, depth + 1);
+      if (url) return url;
+    }
   }
 
   return null;
