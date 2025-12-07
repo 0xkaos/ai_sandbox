@@ -44,6 +44,18 @@ const DATA_URL_REGEX = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 const HTTP_IMAGE_REGEX = /(https?:\/\/\S+\.(?:png|jpe?g|webp|gif))/gi;
 const HTTP_VIDEO_REGEX = /(https?:\/\/\S+\.(?:mp4|webm|mov|m4v|mkv))/gi;
 
+const proxyVideoUrl = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.includes('replicate.')) {
+      return `/api/video/proxy?url=${encodeURIComponent(url)}`;
+    }
+  } catch {
+    // ignore
+  }
+  return url;
+};
+
 const parseSsePayloadToText = (raw: string) => {
   if (!raw || raw.indexOf('data:') === -1) {
     return null;
@@ -275,7 +287,7 @@ const normalizeMessage = (message: UIMessage) => {
         .trim()
     : text;
 
-  return { text: textWithoutMedia, images, videos };
+  return { text: textWithoutMedia, images, videos: videos.map(proxyVideoUrl) };
 };
 
 interface ChatProps {
@@ -386,6 +398,10 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
             return Array.from(next);
           });
         }
+        // Normalize video URLs on the fly for events
+        if (data.type === 'tool-result' && Array.isArray(data.videos)) {
+          data.videos = data.videos.map(proxyVideoUrl);
+        }
         setAgentEvents((prev) => [...prev.slice(-20), data]);
       } catch {
         // ignore parse errors
@@ -485,6 +501,25 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
                         alt="Generated"
                         className="rounded-md border shadow-sm"
                         loading="lazy"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {ephemeralVideos.length > 0 && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-lg px-4 py-2 w-full">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Videos (pending save)</div>
+                  <div className="grid grid-cols-1 gap-3">
+                    {ephemeralVideos.map((src, idx) => (
+                      <video
+                        key={`ephemeral-vid-${idx}`}
+                        src={proxyVideoUrl(src)}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="rounded-md border shadow-sm"
                       />
                     ))}
                   </div>
