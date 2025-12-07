@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCachedImage } from '@/lib/images/cache';
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const entry = getCachedImage(params.id);
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const entry = getCachedImage(id);
   if (!entry) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
