@@ -11,13 +11,8 @@ const videoInputSchema = z.object({
     .string()
     .min(PROMPT_MIN_LEN, `Prompt must include enough detail (at least ${PROMPT_MIN_LEN} characters).`)
     .describe('Text prompt describing the video content.'),
-  duration: z
-    .number()
-    .int()
-    .min(1)
-    .max(8)
-    .default(6)
-    .describe('Video duration in seconds (capped for latency).'),
+  // Replicate model only supports 5s or 10s durations today.
+  duration: z.union([z.literal(5), z.literal(10)]).default(5).describe('Video duration in seconds (allowed values: 5 or 10).'),
   size: z
     .enum(['1280*720', '720*1280', '1024*1024'])
     .default('1280*720')
@@ -90,7 +85,7 @@ function summarizeOutput(output: unknown) {
 function buildPayload(input: z.infer<typeof videoInputSchema>) {
   const payload: Record<string, unknown> = {
     prompt: input.prompt,
-    duration: input.duration ?? 10,
+    duration: input.duration ?? 5,
     size: input.size ?? '1280*720',
     negative_prompt: input.negativePrompt ?? '',
     enable_prompt_expansion: input.enablePromptExpansion ?? true,
