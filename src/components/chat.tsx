@@ -304,7 +304,7 @@ export function Chat({ id, initialMessages = [], initialProvider, initialModel }
           console.debug('[agent-events] tool-result images', data.images);
           setEphemeralImages((prev) => {
             const next = new Set(prev);
-            data.images.forEach((img) => next.add(img));
+            data.images?.forEach((img) => next.add(img));
             return Array.from(next);
           });
         }
