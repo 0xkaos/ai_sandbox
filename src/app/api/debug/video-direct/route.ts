@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 // Directly call Replicate T2V and store the resulting video, bypassing the agent/tool loop.
-// POST body: { prompt: string, duration?: 5|10, size?: '1280*720'|'720*1280'|'1024*1024', negativePrompt?: string, enablePromptExpansion?: boolean, chatId?: string, userId?: string, store?: boolean }
+// POST body: { prompt: string, duration?: 5|10, size?: '1280*720'|'720*1280'|'1024*1024', negativePrompt?: string, enablePromptExpansion?: boolean, chatId?: string, userId?: string, store?: boolean, timeoutMs?: number }
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -22,6 +22,7 @@ export async function POST(req: Request) {
     const negativePrompt: string = typeof body?.negativePrompt === 'string' ? body.negativePrompt : '';
     const enablePromptExpansion: boolean = body?.enablePromptExpansion !== false;
     const shouldStore: boolean = body?.store !== false;
+    const timeoutMs = clampTimeout(body?.timeoutMs);
 
     // Resolve user/chat: prefer session, then body, fallback debug values.
     const session = await auth().catch(() => null);
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
 
     const output = await runWithTimeout(
       () => client.run('wan-video/wan-2.5-t2v', { input }),
-      25000,
+      timeoutMs,
       'Replicate call timed out'
     );
     const videoUrl = resolveOutputUrl(output);
@@ -169,4 +170,9 @@ function findHttpUrlDeep(value: unknown, depth = 0): string | null {
     }
   }
   return null;
+}
+
+function clampTimeout(raw: unknown) {
+  if (typeof raw !== 'number' || Number.isNaN(raw)) return 55000;
+  return Math.min(Math.max(raw, 10000), 55000); // enforce 10s-55s window to stay within Vercel limit
 }
