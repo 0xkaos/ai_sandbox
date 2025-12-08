@@ -8,28 +8,22 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 // Directly call Replicate T2V and store the resulting video, bypassing the agent/tool loop.
-// POST body: { prompt: string, duration?: 5|10, size?: '1280*720'|'720*1280'|'1024*1024', negativePrompt?: string, enablePromptExpansion?: boolean, chatId?: string, userId?: string, store?: boolean, timeoutMs?: number }
+// POST body:
+//   start: { prompt: string, duration?: 5|10, size?: '1280*720'|'720*1280'|'1024*1024', negativePrompt?: string, enablePromptExpansion?: boolean, chatId?: string, userId?: string, store?: boolean }
+//   poll:  { predictionId: string, chatId?: string, userId?: string, store?: boolean }
+// Use by default to start, then poll until status === 'succeeded'.
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const prompt: string = body?.prompt;
-    if (!prompt || typeof prompt !== 'string') {
-      return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
-    }
-
-    const duration: 5 | 10 = body?.duration === 10 ? 10 : 5;
-    const size: '1280*720' | '720*1280' | '1024*1024' = ['720*1280', '1024*1024'].includes(body?.size) ? body.size : '1280*720';
-    const negativePrompt: string = typeof body?.negativePrompt === 'string' ? body.negativePrompt : '';
-    const enablePromptExpansion: boolean = body?.enablePromptExpansion !== false;
+    const hasPredictionId = typeof body?.predictionId === 'string' && body.predictionId.length > 0;
+    const prompt: string | undefined = body?.prompt;
     const shouldStore: boolean = body?.store !== false;
-    const timeoutMs = clampTimeout(body?.timeoutMs);
 
     // Resolve user/chat: prefer session, then body, fallback debug values.
     const session = await auth().catch(() => null);
     const userId = (session?.user?.id as string) || (typeof body?.userId === 'string' ? body.userId : 'debug-user');
     const chatId = typeof body?.chatId === 'string' ? body.chatId : 'debug-chat';
 
-    // Ensure user exists if session is available or userId provided.
     try {
       await ensureUser({ id: userId, email: session?.user?.email || `${userId}@example.com`, name: session?.user?.name });
     } catch (err) {
@@ -48,26 +42,59 @@ export async function POST(req: Request) {
     }
 
     const client = new Replicate({ auth: replicateApiKey });
-    const input = buildPayload({ prompt, duration, size, negativePrompt, enablePromptExpansion });
 
-    const output = await runWithTimeout(
-      () => client.run('wan-video/wan-2.5-t2v', { input }),
-      timeoutMs,
-      'Replicate call timed out'
-    );
-    const videoUrl = resolveOutputUrl(output);
-    if (!videoUrl) {
-      return NextResponse.json({ error: 'Replicate did not return a video URL', output }, { status: 502 });
+    // Poll existing prediction
+    if (hasPredictionId) {
+      const prediction = await client.predictions.get(body.predictionId);
+      const videoUrl = resolveOutputUrl(prediction?.output as unknown);
+      let stored;
+      if (shouldStore && prediction?.status === 'succeeded' && videoUrl) {
+        stored = await cacheVideoFromUrl({ userId, chatId, sourceUrl: videoUrl });
+      }
+
+      return NextResponse.json({
+        mode: 'poll',
+        predictionId: prediction.id,
+        status: prediction.status,
+        videoUrl,
+        output: prediction.output,
+        urls: prediction.urls,
+        stored,
+        chatId,
+        userId,
+      });
     }
 
+    if (!prompt || typeof prompt !== 'string') {
+      return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
+    }
+
+    const duration: 5 | 10 = body?.duration === 10 ? 10 : 5;
+    const size: '1280*720' | '720*1280' | '1024*1024' = ['720*1280', '1024*1024'].includes(body?.size) ? body.size : '1280*720';
+    const negativePrompt: string = typeof body?.negativePrompt === 'string' ? body.negativePrompt : '';
+    const enablePromptExpansion: boolean = body?.enablePromptExpansion !== false;
+
+    const input = buildPayload({ prompt, duration, size, negativePrompt, enablePromptExpansion });
+
+    const prediction = await runWithTimeout(
+      () => client.predictions.create({ model: 'wan-video/wan-2.5-t2v', input }),
+      20000,
+      'Replicate create timed out'
+    );
+
+    const videoUrl = resolveOutputUrl(prediction?.output as unknown);
     let stored;
-    if (shouldStore) {
+    if (shouldStore && prediction?.status === 'succeeded' && videoUrl) {
       stored = await cacheVideoFromUrl({ userId, chatId, sourceUrl: videoUrl });
     }
 
     return NextResponse.json({
+      mode: 'start',
+      predictionId: prediction.id,
+      status: prediction.status,
       videoUrl,
-      output,
+      output: prediction.output,
+      urls: prediction.urls,
       stored,
       chatId,
       userId,
@@ -170,9 +197,4 @@ function findHttpUrlDeep(value: unknown, depth = 0): string | null {
     }
   }
   return null;
-}
-
-function clampTimeout(raw: unknown) {
-  if (typeof raw !== 'number' || Number.isNaN(raw)) return 65000;
-  return Math.min(Math.max(raw, 10000), 85000); // enforce 10s-85s window; higher risks Vercel timeout
 }
