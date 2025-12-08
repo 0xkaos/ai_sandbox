@@ -173,6 +173,6 @@ function findHttpUrlDeep(value: unknown, depth = 0): string | null {
 }
 
 function clampTimeout(raw: unknown) {
-  if (typeof raw !== 'number' || Number.isNaN(raw)) return 55000;
-  return Math.min(Math.max(raw, 10000), 55000); // enforce 10s-55s window to stay within Vercel limit
+  if (typeof raw !== 'number' || Number.isNaN(raw)) return 65000;
+  return Math.min(Math.max(raw, 10000), 85000); // enforce 10s-85s window; higher risks Vercel timeout
 }
