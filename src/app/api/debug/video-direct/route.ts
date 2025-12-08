@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import Replicate from 'replicate';
-import { cacheVideoFromUrl, ensureUser } from '@/lib/db/actions';
+import { cacheVideoFromUrl, ensureChat, ensureUser } from '@/lib/db/actions';
 import { auth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
@@ -35,6 +35,12 @@ export async function POST(req: Request) {
       console.warn('[video-direct] ensureUser failed, continuing', err);
     }
 
+    try {
+      await ensureChat({ id: chatId, userId, title: 'Debug Chat' });
+    } catch (err) {
+      console.warn('[video-direct] ensureChat failed, continuing', err);
+    }
+
     const replicateApiKey = process.env.REPLICATE_API_KEY;
     if (!replicateApiKey) {
       return NextResponse.json({ error: 'Missing REPLICATE_API_KEY' }, { status: 500 });
@@ -43,7 +49,11 @@ export async function POST(req: Request) {
     const client = new Replicate({ auth: replicateApiKey });
     const input = buildPayload({ prompt, duration, size, negativePrompt, enablePromptExpansion });
 
-    const output = await client.run('wan-video/wan-2.5-t2v', { input });
+    const output = await runWithTimeout(
+      () => client.run('wan-video/wan-2.5-t2v', { input }),
+      25000,
+      'Replicate call timed out'
+    );
     const videoUrl = resolveOutputUrl(output);
     if (!videoUrl) {
       return NextResponse.json({ error: 'Replicate did not return a video URL', output }, { status: 502 });
@@ -65,6 +75,16 @@ export async function POST(req: Request) {
     console.error('[video-direct] error', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
+}
+
+async function runWithTimeout<T>(fn: () => Promise<T>, ms: number, message: string): Promise<T> {
+  let timeout: NodeJS.Timeout;
+  return Promise.race([
+    fn(),
+    new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timeout));
 }
 
 function buildPayload(input: {

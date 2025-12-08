@@ -35,6 +35,32 @@ export async function ensureUser(user: { id: string; email: string; name?: strin
   return existingUser[0].id;
 }
 
+// Ensure a chat row exists for a given user/chat combo; creates if missing.
+export async function ensureChat(chat: { id: string; userId: string; title?: string; provider?: string; model?: string }) {
+  const existingChat = await db
+    .select()
+    .from(chats)
+    .where(and(eq(chats.id, chat.id), eq(chats.userId, chat.userId)))
+    .limit(1);
+
+  if (existingChat.length > 0) {
+    return existingChat[0];
+  }
+
+  const [created] = await db
+    .insert(chats)
+    .values({
+      id: chat.id,
+      userId: chat.userId,
+      title: chat.title || 'Debug Chat',
+      provider: chat.provider || 'openai',
+      model: chat.model || 'gpt-4o',
+    })
+    .returning();
+
+  return created;
+}
+
 export async function getChats(userId: string) {
   noStore();
   return await db

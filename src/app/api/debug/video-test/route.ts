@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { db } from '@/lib/db';
 import { videos } from '@/lib/db/schema';
+import { ensureChat, ensureUser } from '@/lib/db/actions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,9 @@ export async function GET(req: Request) {
     const id = randomUUID();
     const chatId = url.searchParams.get('chatId') || 'debug-chat';
     const userId = url.searchParams.get('userId') || 'debug-user';
+
+    await ensureUser({ id: userId, email: `${userId}@example.com`, name: 'Debug User' });
+    await ensureChat({ id: chatId, userId, title: 'Debug Chat' });
 
     await db.insert(videos).values({
       id,
