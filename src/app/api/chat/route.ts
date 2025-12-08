@@ -7,7 +7,7 @@ import { isAgentEligible, runAgentWithTools, type CoreChatMessage } from '@/lib/
 export const runtime = 'nodejs';
 
 // Allow longer processing for video tool (requires Vercel plan support)
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   try {
