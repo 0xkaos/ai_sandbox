@@ -6,20 +6,29 @@ const MODEL_NAME = 'wan-video/wan-2.5-t2v';
 const PROMPT_MIN_LEN = 8;
 const PROMPT_PREVIEW_LEN = 120;
 
-const videoInputSchema = z.object({
-  prompt: z
-    .string()
-    .min(PROMPT_MIN_LEN, `Prompt must include enough detail (at least ${PROMPT_MIN_LEN} characters).`)
-    .describe('Text prompt describing the video content.'),
-  // Replicate model only supports 5s or 10s durations today.
-  duration: z.union([z.literal(5), z.literal(10)]).default(5).describe('Video duration in seconds (allowed values: 5 or 10).'),
-  size: z
-    .enum(['1280*720', '720*1280', '1024*1024'])
-    .default('1280*720')
-    .describe('Resolution of the output video.'),
-  negativePrompt: z.string().default('').describe('Elements to avoid in the video.'),
-  enablePromptExpansion: z.boolean().default(true).describe('Allow model to expand the prompt for quality.'),
-});
+const videoInputSchema = z
+  .object({
+    // Start flow: provide a prompt and optional tuning args.
+    prompt: z
+      .string()
+      .min(PROMPT_MIN_LEN, `Prompt must include enough detail (at least ${PROMPT_MIN_LEN} characters).`)
+      .describe('Text prompt describing the video content.')
+      .optional(),
+    // Poll flow: provide an existing predictionId to check status.
+    predictionId: z.string().min(4).describe('Existing Replicate prediction ID to poll.').optional(),
+    // Replicate model only supports 5s or 10s durations today.
+    duration: z.union([z.literal(5), z.literal(10)]).default(5).describe('Video duration in seconds (allowed values: 5 or 10).'),
+    size: z
+      .enum(['1280*720', '720*1280', '1024*1024'])
+      .default('1280*720')
+      .describe('Resolution of the output video.'),
+    negativePrompt: z.string().default('').describe('Elements to avoid in the video.'),
+    enablePromptExpansion: z.boolean().default(true).describe('Allow model to expand the prompt for quality.'),
+  })
+  .refine((val) => Boolean(val.prompt) !== Boolean(val.predictionId), {
+    message: 'Provide either a prompt to start or a predictionId to poll (but not both).',
+    path: ['prompt'],
+  });
 
 export class GenerateReplicateVideoTool extends StructuredTool<typeof videoInputSchema> {
   name = 'replicate_generate_video';
@@ -40,31 +49,62 @@ export class GenerateReplicateVideoTool extends StructuredTool<typeof videoInput
     }
     this.used = true;
 
+    // Poll existing prediction first to avoid duplicate starts.
+    if (input.predictionId) {
+      const prediction = await this.client.predictions.get(input.predictionId);
+      const videoUrl = resolveOutputUrl(prediction?.output as unknown);
+      return JSON.stringify({
+        provider: 'replicate',
+        model: MODEL_NAME,
+        mode: 'poll',
+        predictionId: prediction.id,
+        status: prediction.status,
+        videoUrl,
+        output: prediction.output,
+        urls: prediction.urls,
+      });
+    }
+
     const started = Date.now();
-    console.log('[video-tool][replicate] generating video', {
+    console.log('[video-tool][replicate] starting prediction', {
       model: MODEL_NAME,
-      promptPreview: input.prompt.slice(0, PROMPT_PREVIEW_LEN),
+      promptPreview: input.prompt?.slice(0, PROMPT_PREVIEW_LEN),
       duration: input.duration,
       size: input.size,
       enablePromptExpansion: input.enablePromptExpansion,
     });
 
     const payload = buildPayload(input);
-    const output = await this.client.run(MODEL_NAME, { input: payload });
-    const videoUrl = resolveOutputUrl(output);
+    let prediction = await this.client.predictions.create({ model: MODEL_NAME, input: payload });
 
-    if (!videoUrl) {
-      console.error('[video-tool][replicate] missing video URL in response', { output });
-      throw new Error('Replicate did not return a video URL.');
+    // Short poll window to catch quick completions without blocking long Vercel requests.
+    const SHORT_POLL_MS = 5000;
+    const MAX_SHORT_POLL_MS = 20000;
+    while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && prediction.status !== 'canceled') {
+      if (Date.now() - started >= MAX_SHORT_POLL_MS) break;
+      await wait(SHORT_POLL_MS);
+      prediction = await this.client.predictions.get(prediction.id);
     }
 
+    const videoUrl = resolveOutputUrl(prediction?.output as unknown);
     const durationMs = Date.now() - started;
-    console.log('[video-tool][replicate] success', { model: MODEL_NAME, durationMs, videoUrl, outputPreview: summarizeOutput(output) });
+
+    console.log('[video-tool][replicate] status', {
+      predictionId: prediction.id,
+      status: prediction.status,
+      durationMs,
+      videoUrl: videoUrl ? videoUrl.slice(0, 120) : null,
+    });
 
     return JSON.stringify({
       provider: 'replicate',
       model: MODEL_NAME,
+      mode: 'start',
+      predictionId: prediction.id,
+      status: prediction.status,
       videoUrl,
+      output: prediction.output,
+      urls: prediction.urls,
       durationMs,
     });
   }
@@ -196,4 +236,8 @@ export function getVideoGeneratorTools(): StructuredToolInterface[] {
   }
 
   return [new GenerateReplicateVideoTool(apiKey)];
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
